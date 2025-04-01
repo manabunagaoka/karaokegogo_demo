@@ -1,74 +1,20 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from 'react';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faChevronUp, faChevronDown, faMicrophone, faMusic, faChartLine, faRss, faUpload, faPlay, faPause, faStar, faSearch, faCheck, faStop, faTrash, faDownload } from '@fortawesome/free-solid-svg-icons';
-
-// Audio manager factory for reliable playback
-const createAudioManager = () => {
-  let currentTrack = null;
-  let isCurrentlyPlaying = false;
-  let activeAudio = null;
-  
-  return {
-    playTrack: (track, onSuccess, onError) => {
-      // Stop current audio if playing
-      if (activeAudio) {
-        activeAudio.pause();
-        activeAudio = null;
-      }
-      
-      // Reset state
-      isCurrentlyPlaying = false;
-      currentTrack = null;
-      
-      // Create new audio
-      const audio = new Audio();
-      
-      // Set up event listeners
-      audio.addEventListener('canplay', () => {
-        const playPromise = audio.play();
-        if (playPromise !== undefined) {
-          playPromise
-            .then(() => {
-              isCurrentlyPlaying = true;
-              currentTrack = track.id;
-              if (onSuccess) onSuccess();
-            })
-            .catch(err => {
-              console.error("Playback error:", err);
-              if (onError) onError(err);
-            });
-        }
-      });
-      
-      audio.addEventListener('error', (err) => {
-        console.error("Audio error:", err);
-        if (onError) onError(err);
-      });
-      
-      // Load the track
-      audio.src = track.audioUrl;
-      activeAudio = audio;
-    },
-    
-    stopPlayback: () => {
-      if (activeAudio) {
-        activeAudio.pause();
-        activeAudio = null;
-      }
-      isCurrentlyPlaying = false;
-      currentTrack = null;
-    },
-    
-    isPlaying: () => isCurrentlyPlaying,
-    getCurrentTrack: () => currentTrack
-  };
-};
+import AppLogo from '@/components/layout/AppLogo';
+import NavigationButtons from '@/components/ui/NavigationButtons';
+import TrackPanel from '@/components/karaoke/TrackPanel';
+import UploadModal from '@/components/karaoke/UploadModal';
+import ToastNotification from '@/components/ui/ToastNotification';
+import ConfirmDialog from '@/components/ui/ConfirmDialog';
+import LyricsPanel from '@/components/karaoke/LyricsPanel';
+import { createAudioManager, Track } from '@/lib/audio-manager';
+import { createTrackStorage } from '@/lib/track-storage';
 
 export default function Home() {
-  // Create audio manager
+  // Create managers
   const audioManager = useRef(createAudioManager()).current;
+  const trackStorage = useRef(createTrackStorage('karaokeTracks')).current;
   
   // UI State
   const [isTrackPanelVisible, setIsTrackPanelVisible] = useState(false);
@@ -77,24 +23,24 @@ export default function Home() {
   
   // Upload State
   const [isUploadPanelVisible, setIsUploadPanelVisible] = useState(false);
-  const [uploadFile, setUploadFile] = useState(null);
-  const [uploadCategory, setUploadCategory] = useState("Others");
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadCategory, setUploadCategory] = useState("Pop");
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadUserName, setUploadUserName] = useState("");
+  const [uploadSongTitle, setUploadSongTitle] = useState("");
+  const [uploadDescription, setUploadDescription] = useState("");
+  const [hasSongVersion, setHasSongVersion] = useState(false);
+  const [uploadLyrics, setUploadLyrics] = useState("");
   
   // Audio State
-  const [tracks, setTracks] = useState([]);
-  const [selectedTrack, setSelectedTrack] = useState(null);
-  const [isPlaying, setIsPlaying] = useState(null);
-  const [isRecording, setIsRecording] = useState(false);
-  const [recordedBlob, setRecordedBlob] = useState(null);
+  const [tracks, setTracks] = useState<Track[]>([]);
+  const [selectedTrack, setSelectedTrack] = useState<number | string | null>(null);
+  const [isPlaying, setIsPlaying] = useState<number | string | null>(null);
   
-  // Recording State
-  const [recordingTime, setRecordingTime] = useState(0);
-  const [recordingTimerId, setRecordingTimerId] = useState(null);
-  const [isMixing, setIsMixing] = useState(false);
-  const [mixProgress, setMixProgress] = useState(0);
-  const [voiceGain, setVoiceGain] = useState(80);
-  const [trackGain, setTrackGain] = useState(50);
+  // Lyrics Panel State
+  const [isLyricsPanelVisible, setIsLyricsPanelVisible] = useState(false);
+  const [currentLyricsTrack, setCurrentLyricsTrack] = useState<Track | null>(null);
+  const [currentPlaybackTime, setCurrentPlaybackTime] = useState(0);
   
   // Notification State
   const [toast, setToast] = useState({ visible: false, message: '', type: 'success' });
@@ -102,32 +48,29 @@ export default function Home() {
     visible: false, 
     title: '', 
     message: '', 
-    onConfirm: null, 
-    onCancel: null 
+    onConfirm: () => {}, 
+    onCancel: () => {} 
   });
 
   // Add this helper function for generating unique IDs
   const generateUniqueId = (() => {
-  let lastId = 0;
-  return () => {
-    const newId = Date.now();
-    lastId = newId > lastId ? newId : lastId + 1;
-    return lastId;
-  };
+    let lastId = 0;
+    return () => {
+      const newId = Date.now();
+      lastId = newId > lastId ? newId : lastId + 1;
+      return lastId;
+    };
   })();
 
-// Refs
+  // Refs
   const trackPanelRef = useRef(null);
-  const audioRef = useRef(null);
-  const mediaRecorderRef = useRef(null);
-  const audioChunksRef = useRef([]);
-  const fileInputRef = useRef(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   // Categories
-  const categories = ["All", "Pop", "Rock", "Hip-Hop", "Electronic", "R&B", "Rap", "Others", "My Tracks"];
+  const categories = ["All", "My Tracks", "Pop", "Rock", "Hip-Hop", "Electronic", "R&B", "Rap", "Others"];
 
   // Show toast notification
-  const showToast = (message, type = 'success') => {
+  const showToast = (message: string, type = 'success') => {
     setToast({ visible: true, message, type });
     setTimeout(() => {
       setToast({ visible: false, message: '', type: 'success' });
@@ -136,14 +79,8 @@ export default function Home() {
 
   // Load tracks from local storage on mount
   useEffect(() => {
-    const savedTracks = localStorage.getItem('karaokeTracks');
-    if (savedTracks) {
-      try {
-        setTracks(JSON.parse(savedTracks));
-      } catch (e) {
-        console.error("Error loading saved tracks:", e);
-      }
-    }
+    const loadedTracks = trackStorage.getTracks();
+    setTracks(loadedTracks);
   }, []);
 
   // Save tracks to local storage when updated
@@ -153,13 +90,27 @@ export default function Home() {
     }
   }, [tracks]);
 
+  // Set up playback time tracking for lyrics
+  useEffect(() => {
+    if (isPlaying !== null && currentLyricsTrack !== null) {
+      const updateInterval = setInterval(() => {
+        const currentTime = audioManager.getCurrentTime();
+        if (currentTime !== undefined) {
+          setCurrentPlaybackTime(currentTime);
+        }
+      }, 100);
+      
+      return () => clearInterval(updateInterval);
+    }
+  }, [isPlaying, currentLyricsTrack]);
+
   // Toggle track selection panel
   const toggleTrackSelectionPanel = () => {
     setIsTrackPanelVisible(!isTrackPanelVisible);
   };
   
   // Handle track selection
-  const handleTrackSelect = (trackId) => {
+  const handleTrackSelect = (trackId: number | string) => {
     setSelectedTrack(trackId);
     // Don't automatically play when selecting
     if (isPlaying !== null) {
@@ -168,8 +119,17 @@ export default function Home() {
     }
   };
   
-  // Handle play/pause toggle
-  const togglePlay = (trackId, event) => {
+  // Handle view lyrics
+  const handleViewLyrics = (trackId: number | string) => {
+    const track = tracks.find(t => t.id === trackId);
+    if (track && track.lyrics) {
+      setCurrentLyricsTrack(track);
+      setIsLyricsPanelVisible(true);
+    }
+  };
+  
+  // Handle play/pause toggle for a track
+  const togglePlay = (trackId: number | string, event: React.MouseEvent) => {
     event.stopPropagation();
     
     try {
@@ -201,10 +161,21 @@ export default function Home() {
       showToast('Error playing track. Please try another.', 'error');
     }
   };
+
+  // Toggle play for selected track
+  const toggleSelectedTrackPlay = (event: React.MouseEvent) => {
+    event.preventDefault();
+    if (selectedTrack) {
+      const trackToPlay = tracks.find(track => track.id === selectedTrack);
+      if (trackToPlay) {
+        togglePlay(selectedTrack, event);
+      }
+    }
+  };
   
   // Handle file selection
-  const handleFileSelect = (event) => {
-    const file = event.target.files[0];
+  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
     if (!file) return;
     
     // Only accept audio files
@@ -224,36 +195,59 @@ export default function Home() {
     
     // Store file and show upload panel
     setUploadFile(file);
+    setUploadSongTitle(file.name.replace(/\.[^/.]+$/, "")); // Set default title to filename
     setIsUploadPanelVisible(true);
     
     // Reset file input
-    event.target.value = null;
+    if (event.target) {
+      event.target.value = '';
+    }
   };
   
   // Function to perform the actual upload
-  const performUpload = () => {
-    if (!uploadFile) return;
+const performUpload = async () => {
+  if (!uploadFile) return;
+  
+  setIsUploading(true);
+  
+  try {
+    // Create a unique filename
+    const uniqueFilename = `${Date.now()}-${uploadFile.name}`;
     
-    setIsUploading(true);
+    // Create form data to send to API
+    const formData = new FormData();
+    formData.append('file', uploadFile);
     
-    // Create file URL
-    const audioUrl = URL.createObjectURL(uploadFile);
+    // Upload to Vercel Blob Storage
+    const response = await fetch(`/api/upload?filename=${encodeURIComponent(uniqueFilename)}`, {
+      method: 'POST',
+      body: formData,
+    });
     
-    // Create audio element to get duration
+    if (!response.ok) {
+      throw new Error('Failed to upload file');
+    }
+    
+    const blob = await response.json();
+    const audioUrl = blob.url; // This URL is permanent and shareable
+    
+    // Get audio duration
     const audio = new Audio();
     audio.src = audioUrl;
     
-    audio.addEventListener('error', () => {
+    // Handle errors
+    const handleAudioError = () => {
       showToast('This audio file format is not supported. Please try another format like MP3 or WAV.', 'error');
-      URL.revokeObjectURL(audioUrl);
       setIsUploading(false);
       setIsUploadPanelVisible(false);
-    });
+    };
+
+    audio.addEventListener('error', handleAudioError);
     
+    // Handle metadata loading
     audio.addEventListener('loadedmetadata', () => {
       if (isNaN(audio.duration)) {
         showToast('Could not determine audio duration. The file might be corrupt.', 'error');
-        URL.revokeObjectURL(audioUrl);
         setIsUploading(false);
         setIsUploadPanelVisible(false);
         return;
@@ -266,15 +260,23 @@ export default function Home() {
       const seconds = Math.floor(duration % 60);
       const formattedDuration = `${minutes}:${seconds.toString().padStart(2, '0')}`;
       
+      // Create track ID
+      const newTrackId = generateUniqueId();
+      
       // Create new track
       const newTrack = {
-        id: generateUniqueId(),
-        title: uploadFile.name.replace(/\.[^/.]+$/, ""), // Remove extension
-        artist: 'User Upload',
+        id: newTrackId,
+        title: uploadSongTitle || uploadFile.name.replace(/\.[^/.]+$/, ""),
+        artist: uploadUserName || 'User Upload',
         duration: formattedDuration,
-        audioUrl: audioUrl,
+        audioUrl: audioUrl, // Permanent URL from Vercel Blob
         popular: false,
-        category: uploadCategory
+        category: uploadCategory,
+        description: uploadDescription || '',
+        hasSongVersion: hasSongVersion,
+        lyrics: uploadLyrics || '',
+        isKaraokeTrack: hasSongVersion,
+        userTrack: true
       };
       
       // Add track to list
@@ -284,14 +286,34 @@ export default function Home() {
       setIsUploading(false);
       setIsUploadPanelVisible(false);
       setUploadFile(null);
+      setUploadUserName("");
+      setUploadSongTitle("");
+      setUploadDescription("");
+      setHasSongVersion(false);
+      setUploadLyrics("");
       
-      // Show success message
+      // Show success message and select the new track
       showToast(`Track "${newTrack.title}" uploaded successfully!`, 'success');
+      setSelectedTrack(newTrackId);
+      
+      // Switch to "My Tracks" category to show the new track
+      setSelectedCategory("My Tracks");
     });
-  };
+    
+    // Load the audio to trigger metadata loading
+    audio.load();
+    
+  } catch (error) {
+    console.error("Upload error:", error);
+    showToast('Failed to upload track. Please try again.', 'error');
+    setIsUploading(false);
+    setIsUploadPanelVisible(false);
+  }
+};
   
-  // Delete a track
-  const deleteTrack = (trackId, event) => {
+  // Delete a track - FIXED VERSION
+  const deleteTrack = (trackId: number | string, event: React.MouseEvent) => {
+    // Make sure to stop propagation to prevent selecting the track
     event.stopPropagation();
     
     const confirmDelete = () => {
@@ -301,8 +323,15 @@ export default function Home() {
         setIsPlaying(null);
       }
       
+      // Remove from tracks state
       setTracks(prevTracks => prevTracks.filter(track => track.id !== trackId));
       
+      // Also remove from localStorage directly
+      const currentTracks = JSON.parse(localStorage.getItem('karaokeTracks') || '[]');
+      const updatedTracks = currentTracks.filter((track: any) => track.id !== trackId);
+      localStorage.setItem('karaokeTracks', JSON.stringify(updatedTracks));
+      
+      // If this was the selected track, deselect it
       if (selectedTrack === trackId) {
         setSelectedTrack(null);
       }
@@ -310,7 +339,7 @@ export default function Home() {
       showToast('Track deleted successfully', 'success');
       
       // Close the dialog
-      setConfirmDialog({ visible: false });
+      setConfirmDialog({ visible: false, title: '', message: '', onConfirm: () => {}, onCancel: () => {} });
     };
     
     // Show a custom confirmation dialog
@@ -319,333 +348,34 @@ export default function Home() {
       title: 'Delete Track',
       message: 'Are you sure you want to delete this track?',
       onConfirm: confirmDelete,
-      onCancel: () => setConfirmDialog({ visible: false })
+      onCancel: () => setConfirmDialog({ visible: false, title: '', message: '', onConfirm: () => {}, onCancel: () => {} })
     });
   };
   
-  // Format time for display
-  const formatTime = (seconds) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  // Stub function that shows a Coming Soon message
+  const showComingSoonMessage = () => {
+    showToast('Recording features coming soon!', 'info');
   };
   
-  // Replace the startRecording function with this WebAudio mixing approach
-  const startRecording = async () => {
-    if (!selectedTrack) return;
-    
-    try {
-      // Create a new AudioContext
-      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      
-      // Get microphone stream
-      const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const micSource = audioContext.createMediaStreamSource(micStream);
-      
-      // Create gain nodes for volume control
-      const micGainNode = audioContext.createGain();
-      micGainNode.gain.value = voiceGain / 100;
-      micSource.connect(micGainNode);
-      
-      // Create a destination to capture the mic input
-      const micDestination = audioContext.createMediaStreamDestination();
-      micGainNode.connect(micDestination);
-      
-      // Set up recording of the mic
-      mediaRecorderRef.current = new MediaRecorder(micDestination.stream);
-      audioChunksRef.current = [];
-      
-      // Get backing track
-      const trackToPlay = tracks.find(track => track.id === selectedTrack);
-      
-      // Setup audio element for backing track
-      if (trackToPlay && audioRef.current) {
-        audioRef.current.src = trackToPlay.audioUrl;
-        audioRef.current.volume = trackGain / 100;
-        
-        try {
-          // Play the backing track
-          await audioRef.current.play();
-          
-          // Start recording the mic
-          mediaRecorderRef.current.ondataavailable = (event) => {
-            if (event.data.size > 0) {
-              audioChunksRef.current.push(event.data);
-            }
-          };
-          
-          mediaRecorderRef.current.onstop = () => {
-            // Create blob from recorded audio
-            const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-            const audioUrl = URL.createObjectURL(audioBlob);
-            
-            // Store recorded data
-            setRecordedBlob({ 
-              blob: audioBlob, 
-              url: audioUrl,
-              trackId: selectedTrack,
-              duration: formatTime(recordingTime),
-              trackUrl: trackToPlay.audioUrl  // Store backing track URL for later
-            });
-            
-            audioChunksRef.current = [];
-            
-            // Reset recording timer
-            clearInterval(recordingTimerId);
-            setRecordingTimerId(null);
-            setRecordingTime(0);
-            
-            showToast("Recording completed! You can now play it back or save it.", "success");
-          };
-          
-          // Start the recording
-          mediaRecorderRef.current.start();
-          
-          // Start a timer to display recording duration
-          const timerId = setInterval(() => {
-            setRecordingTime(prev => prev + 1);
-          }, 1000);
-          
-          setRecordingTimerId(timerId);
-          setIsRecording(true);
-          
-          showToast("Now recording! Sing along with the music.", "info");
-        } catch (error) {
-          console.error("Error playing backing track:", error);
-          showToast("Could not play the backing track. Please try another track.", "error");
-        }
-      } else {
-        showToast("No track selected or track not found.", "error");
-      }
-    } catch (error) {
-      console.error("Error starting recording:", error);
-      showToast("Could not access microphone. Please check permissions.", "error");
-    }
-  };
-  
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
-      
-      // Stop the backing track
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.currentTime = 0;
+  // Filter and sort tracks
+  const filteredTracks = tracks
+    .filter(track => {
+      // Handle "My Tracks" category specially
+      if (selectedCategory === "My Tracks") {
+        return track.userTrack === true;
       }
       
-      // Stop all tracks on the stream
-      if (mediaRecorderRef.current.stream) {
-        mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
-      }
-      
-      // Clear recording timer
-      if (recordingTimerId) {
-        clearInterval(recordingTimerId);
-        setRecordingTimerId(null);
-      }
-    }
-  };
-  
-  // Replace the mixRecording function with this improved version
-  const mixRecording = () => {
-    if (!recordedBlob) return;
+      const matchesCategory = selectedCategory === "All" || track.category === selectedCategory;
+      const matchesSearch = searchQuery === "" || 
+        track.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
+        track.artist.toLowerCase().includes(searchQuery.toLowerCase());
     
-    setIsMixing(true);
-    setMixProgress(0);
-    
-    // Find the original track
-    const originalTrack = tracks.find(track => track.id === recordedBlob.trackId);
-    const originalTrackName = originalTrack ? originalTrack.title : 'Unknown Track';
-    
-    // Simulate mixing progress
-    const interval = setInterval(() => {
-      setMixProgress(prev => {
-        const newProgress = prev + 5;
-        if (newProgress >= 100) {
-          clearInterval(interval);
-          setTimeout(() => {
-            setIsMixing(false);
-            
-            // Create a new track from the recording with better metadata
-            const now = new Date();
-            const formattedDate = `${now.getMonth()+1}/${now.getDate()}/${now.getFullYear()}`;
-            const trackName = `${originalTrackName} - My Version (${formattedDate})`;
-            
-            // Create a fully qualified URL for the recording
-            const recordingUrl = recordedBlob.url;
-            
-            // Check if this recording already exists in the tracks
-            const recordingExists = tracks.some(track => 
-              track.audioUrl === recordingUrl || 
-              (track.title === trackName && track.category === "My Tracks")
-            );
-            
-            // Only add if it doesn't already exist
-            if (!recordingExists) {
-              const newTrack = {
-                id: generateUniqueId(),
-                title: trackName,
-                artist: 'My Voice',
-                duration: recordedBlob.duration || "0:00",
-                audioUrl: recordingUrl,
-                popular: false,
-                category: "My Tracks",
-                originalTrackId: recordedBlob.trackId,
-                isRecording: true
-              };
-              
-              // Add to tracks
-              setTracks(prevTracks => [...prevTracks, newTrack]);
-              showToast("Your karaoke track has been saved to My Tracks!", 'success');
-            } else {
-              showToast("This recording is already saved in My Tracks", 'info');
-            }
-            
-            // Close recording panel and automatically switch to My Tracks category
-            setRecordedBlob(null);
-            setSelectedCategory("My Tracks");
-          }, 500);
-        }
-        return newProgress;
-      });
-    }, 100);
-  };
-
-  // Add a download function for recordings
-  const downloadRecording = () => {
-    if (!recordedBlob) return;
-    
-    // Create a temporary link
-    const a = document.createElement('a');
-    a.href = recordedBlob.url;
-    
-    // Create a good filename
-    const originalTrack = tracks.find(track => track.id === recordedBlob.trackId);
-    const originalTrackName = originalTrack ? originalTrack.title : 'Karaoke';
-    const now = new Date();
-    const timestamp = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-    
-    a.download = `${originalTrackName}-MyVoice-${timestamp}.webm`;
-    
-    // Add to DOM, click, and remove
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    
-    showToast("Your recording has been downloaded!", "success");
-  };
-  
- // Filter tracks by search query and category
-const filteredTracks = tracks.filter(track => {
-  const matchesCategory = selectedCategory === "All" || track.category === selectedCategory;
-  const matchesSearch = searchQuery === "" || 
-    track.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
-    track.artist.toLowerCase().includes(searchQuery.toLowerCase());
-  
-  return matchesCategory && matchesSearch;
-});
-
-// Ensure we have unique IDs using native JavaScript
-const uniqueFilteredTracks = filteredTracks.filter((track, index, self) => 
-  index === self.findIndex((t) => t.id === track.id)
-);
-
-// Sort tracks: popular first, then alphabetically by title
-const sortedTracks = [...uniqueFilteredTracks].sort((a, b) => {
-  if (a.popular !== b.popular) return a.popular ? -1 : 1;
-  return a.title.localeCompare(b.title);
-});
-
-  // Toast notification component
-  const ToastNotification = () => {
-    if (!toast.visible) return null;
-    
-    const bgColor = toast.type === 'success' ? 'rgba(51,204,51,0.9)' : 
-                  toast.type === 'error' ? 'rgba(255,51,51,0.9)' : 
-                  'rgba(0,153,255,0.9)';
-    
-    return (
-      <div style={{
-        position: 'fixed',
-        bottom: '160px', // Above bottom panel
-        left: '50%',
-        transform: 'translateX(-50%)',
-        backgroundColor: bgColor,
-        color: 'white',
-        padding: '12px 20px',
-        borderRadius: '8px',
-        boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
-        zIndex: 1000,
-        maxWidth: '90%',
-        textAlign: 'center',
-        animation: 'fadeIn 0.3s ease-out'
-      }}>
-        {toast.message}
-      </div>
-    );
-  };
-
-  // Confirmation dialog component
-  const ConfirmationDialog = () => {
-    if (!confirmDialog.visible) return null;
-    
-    return (
-      <div style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        width: '100%',
-        height: '100%',
-        backgroundColor: 'rgba(0,0,0,0.7)',
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        zIndex: 1100
-      }}>
-        <div style={{
-          width: '90%',
-          maxWidth: '320px',
-          backgroundColor: '#1a1a1a',
-          borderRadius: '12px',
-          padding: '20px',
-          boxShadow: '0 6px 24px rgba(0,0,0,0.3)'
-        }}>
-          <h3 style={{ margin: '0 0 10px 0', color: 'white' }}>{confirmDialog.title}</h3>
-          <p style={{ margin: '0 0 20px 0', color: 'rgba(255,255,255,0.8)' }}>{confirmDialog.message}</p>
-          
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-            <button
-              onClick={confirmDialog.onCancel}
-              style={{
-                padding: '8px 16px',
-                background: 'rgba(255,255,255,0.1)',
-                border: 'none',
-                borderRadius: '6px',
-                color: 'white',
-                cursor: 'pointer'
-              }}
-            >
-              Cancel
-            </button>
-            <button
-              onClick={confirmDialog.onConfirm}
-              style={{
-                padding: '8px 16px',
-                background: 'rgba(255,51,51,0.8)',
-                border: 'none',
-                borderRadius: '6px',
-                color: 'white',
-                cursor: 'pointer'
-              }}
-            >
-              Delete
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  };
+      return matchesCategory && matchesSearch;
+    })
+    .sort((a, b) => {
+      if (a.popular !== b.popular) return a.popular ? -1 : 1;
+      return a.title.localeCompare(b.title);
+    });
 
   return (
     <main style={{ 
@@ -693,62 +423,11 @@ const sortedTracks = [...uniqueFilteredTracks].sort((a, b) => {
         padding: "0"
       }}>
         {/* Logo and Tagline */}
-        <div style={{
-          textAlign: "center",
-          marginTop: "25px",
-          padding: "0 20px"
-        }}>
-          {/* Logo with Beta tag */}
-          <div style={{ position: "relative", display: "inline-block" }}>
-            <h1 style={{
-              fontSize: "clamp(32px, 6vw, 38px)",
-              fontWeight: "bold",
-              margin: "0",
-              background: "linear-gradient(to right, #ff9900, #ff00ff, #00ffff)",
-              WebkitBackgroundClip: "text",
-              backgroundClip: "text",
-              color: "transparent",
-              textShadow: "0 2px 4px rgba(0,0,0,0.3)"
-            }}>
-              karaokeGoGo
-              <span style={{
-                position: "relative",
-                top: "clamp(-14px, -3vw, -16px)",
-                fontSize: "clamp(12px, 3vw, 15px)",
-                fontWeight: "normal",
-                background: "linear-gradient(to right, #ff00cc, #00ccff)",
-                WebkitBackgroundClip: "text",
-                backgroundClip: "text",
-                color: "transparent",
-                marginLeft: "5px",
-                padding: "2px 6px",
-                border: "1px solid rgba(255,255,255,0.3)",
-                borderRadius: "8px"
-              }}>
-                beta
-              </span>
-            </h1>
-          </div>
-          
-          {/* Tagline with reduced spacing */}
-          <p style={{
-            fontSize: "clamp(14px, 3.5vw, 18px)",
-            margin: "5px 0 0 0",
-            color: "rgba(255,255,255,0.95)",
-            fontWeight: "300",
-            letterSpacing: "1px",
-            textShadow: "0 1px 3px rgba(0,0,0,0.5)"
-          }}>
-            Pour your soul. Remix your world.
-          </p>
-        </div>
+        <AppLogo />
         
         {/* Empty flex space to push content to top */}
         <div style={{ flexGrow: 1 }}></div>
       </div>
-      
-      {/* Hidden audio element for playback */}
-      <audio ref={audioRef} style={{ display: 'none' }} />
       
       {/* Hidden file input for uploads */}
       <input 
@@ -759,34 +438,7 @@ const sortedTracks = [...uniqueFilteredTracks].sort((a, b) => {
         onChange={handleFileSelect}
       />
 
-      {/* Recording indicator */}
-      {isRecording && (
-        <div style={{
-          position: "fixed",
-          bottom: "140px",
-          left: "50%",
-          transform: "translateX(-50%)",
-          backgroundColor: "rgba(0,0,0,0.8)",
-          borderRadius: "15px",
-          padding: "10px 20px",
-          boxShadow: "0 0 20px rgba(255,0,0,0.3)",
-          animation: "pulse 1.5s infinite",
-          zIndex: 30,
-          display: "flex",
-          alignItems: "center",
-          gap: "15px"
-        }}>
-          <div style={{ 
-            width: "15px", 
-            height: "15px", 
-            borderRadius: "50%", 
-            backgroundColor: "red" 
-          }}></div>
-          <span style={{ fontWeight: "bold" }}>Recording: {formatTime(recordingTime)}</span>
-        </div>
-      )}
-      
-      {/* Bottom panel with four disco-style circle buttons - Always visible */}
+      {/* Bottom panel with navigation buttons */}
       <div style={{
         position: "fixed",
         bottom: "0",
@@ -801,853 +453,111 @@ const sortedTracks = [...uniqueFilteredTracks].sort((a, b) => {
         backdropFilter: "blur(5px)",
         overflow: "hidden"
       }}>
-        <div style={{ 
-          display: "flex", 
-          gap: "max(15px, min(30px, 4vw))",
-          justifyContent: "center",
-          padding: "5px 20px",
-          minWidth: "fit-content"
-        }}>
-          {/* Sing-Along Button */}
-          <button
-            onClick={toggleTrackSelectionPanel}
-            style={{
-              width: "clamp(60px, 15vw, 75px)",
-              height: "clamp(60px, 15vw, 75px)",
-              minWidth: "60px",
-              background: "radial-gradient(circle, #ff00cc, #660066)",
-              color: "white",
-              borderRadius: "50%",
-              border: "2px solid #ff66cc",
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              cursor: "pointer",
-              boxShadow: "0 0 20px #ff00cc, inset 0 0 10px rgba(255,255,255,0.3)",
-              position: "relative",
-              overflow: "hidden"
-            }}
-            className="disco-button"
-          >
-            <div className="glow"></div>
-            <FontAwesomeIcon icon={faMicrophone} style={{ fontSize: "clamp(16px, 4vw, 24px)", position: "relative", zIndex: 2 }} />
-            <span style={{ fontSize: "clamp(9px, 2vw, 12px)", marginTop: "4px", position: "relative", zIndex: 2 }}>Sing-Along</span>
-          </button>
-          
-          <button
-            style={{
-              width: "clamp(60px, 15vw, 75px)",
-              height: "clamp(60px, 15vw, 75px)",
-              minWidth: "60px",
-              background: "radial-gradient(circle, #00ccff, #0066cc)",
-              color: "white",
-              borderRadius: "50%",
-              border: "2px solid #66ccff",
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              cursor: "pointer",
-              boxShadow: "0 0 20px #00ccff, inset 0 0 10px rgba(255,255,255,0.3)",
-              position: "relative",
-              overflow: "hidden"
-            }}
-            className="disco-button"
-            onClick={() => setSelectedCategory("My Tracks")}
-          >
-            <div className="glow"></div>
-            <FontAwesomeIcon icon={faMusic} style={{ fontSize: "clamp(16px, 4vw, 24px)", position: "relative", zIndex: 2 }} />
-            <span style={{ fontSize: "clamp(9px, 2vw, 12px)", marginTop: "4px", position: "relative", zIndex: 2 }}>My Mix</span>
-          </button>
-          
-          <button
-            style={{
-              width: "clamp(60px, 15vw, 75px)",
-              height: "clamp(60px, 15vw, 75px)",
-              minWidth: "60px",
-              background: "radial-gradient(circle, #ffcc00, #cc6600)",
-              color: "white",
-              borderRadius: "50%",
-              border: "2px solid #ffdd66",
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              cursor: "pointer",
-              boxShadow: "0 0 20px #ffcc00, inset 0 0 10px rgba(255,255,255,0.3)",
-              position: "relative",
-              overflow: "hidden"
-            }}
-            className="disco-button"
-          >
-            <div className="glow"></div>
-            <FontAwesomeIcon icon={faChartLine} style={{ fontSize: "clamp(16px, 4vw, 24px)", position: "relative", zIndex: 2 }} />
-            <span style={{ fontSize: "clamp(9px, 2vw, 12px)", marginTop: "4px", position: "relative", zIndex: 2 }}>Top Charts</span>
-          </button>
-          
-          <button
-            style={{
-              width: "clamp(60px, 15vw, 75px)",
-              height: "clamp(60px, 15vw, 75px)",
-              minWidth: "60px",
-              background: "radial-gradient(circle, #33cc33, #006600)",
-              color: "white",
-              borderRadius: "50%",
-              border: "2px solid #66dd66",
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              cursor: "pointer",
-              boxShadow: "0 0 20px #33cc33, inset 0 0 10px rgba(255,255,255,0.3)",
-              position: "relative",
-              overflow: "hidden"
-            }}
-            className="disco-button"
-          >
-            <div className="glow"></div>
-            <FontAwesomeIcon icon={faRss} style={{ fontSize: "clamp(16px, 4vw, 24px)", position: "relative", zIndex: 2 }} />
-            <span style={{ fontSize: "clamp(9px, 2vw, 12px)", marginTop: "4px", position: "relative", zIndex: 2 }}>Feed</span>
-          </button>
-        </div>
+        <NavigationButtons 
+          onKaraokeClick={toggleTrackSelectionPanel} 
+          showComingSoonMessage={showComingSoonMessage} 
+        />
       </div>
       
-      {/* Track Selection Panel - Slide up when triggered */}
-      <div 
-        ref={trackPanelRef}
-        style={{
-          position: "fixed",
-          bottom: isTrackPanelVisible ? "0" : "-100%",
-          left: 0,
-          width: "100%",
-          height: "85%", // Make it partial screen height
-          background: "rgba(18, 18, 18, 0.95)",
-          zIndex: 25, // Higher than bottom panel
-          display: "flex",
-          flexDirection: "column",
-          color: "white",
-          transition: "bottom 0.3s ease-out",
-          borderTopLeftRadius: "20px",
-          borderTopRightRadius: "20px",
-          boxShadow: "0 -5px 20px rgba(0,0,0,0.5)"
+      {/* Track Panel Component */}
+      <TrackPanel 
+        visible={isTrackPanelVisible}
+        tracks={filteredTracks}
+        selectedTrack={selectedTrack}
+        isPlaying={isPlaying}
+        selectedCategory={selectedCategory}
+        searchQuery={searchQuery}
+        categories={categories}
+        onClose={() => setIsTrackPanelVisible(false)}
+        onSelectTrack={handleTrackSelect}
+        onTogglePlay={togglePlay}
+        onDeleteTrack={deleteTrack}
+        onSearchChange={setSearchQuery}
+        onSelectCategory={setSelectedCategory}
+        onUploadClick={() => fileInputRef.current?.click()}
+        onToggleSelectedTrack={toggleSelectedTrackPlay}
+        onViewLyrics={handleViewLyrics}
+      />
+      
+      {/* Upload Modal Component */}
+      <UploadModal 
+        visible={isUploadPanelVisible}
+        uploadFile={uploadFile}
+        uploadUserName={uploadUserName}
+        uploadSongTitle={uploadSongTitle}
+        uploadDescription={uploadDescription}
+        uploadCategory={uploadCategory}
+        hasSongVersion={hasSongVersion}
+        uploadLyrics={uploadLyrics}
+        isUploading={isUploading}
+        categories={categories}
+        onClose={() => {
+          setIsUploadPanelVisible(false);
+          setUploadFile(null);
+          setUploadUserName("");
+          setUploadSongTitle("");
+          setUploadDescription("");
+          setHasSongVersion(false);
+          setUploadLyrics("");
         }}
-        className="track-selection-panel"
-      >
-        {/* Panel header with drag handle */}
-        <div style={{
-          padding: "8px 0",
-          display: "flex",
-          justifyContent: "center",
-          borderTopLeftRadius: "20px",
-          borderTopRightRadius: "20px",
-          borderBottom: "1px solid rgba(255,255,255,0.1)",
-          background: "linear-gradient(to right, rgba(36,14,50,1) 0%, rgba(18,18,18,1) 100%)"
-        }}>
-          <div style={{
-            width: "40px",
-            height: "5px",
-            backgroundColor: "rgba(255,255,255,0.3)",
-            borderRadius: "3px"
-          }}></div>
-        </div>
-        
-        {/* Panel title with close button */}
-        <div style={{
-          padding: "15px 20px",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          borderBottom: "1px solid rgba(255,255,255,0.1)",
-          background: "linear-gradient(to right, rgba(36,14,50,0.8) 0%, rgba(18,18,18,0.8) 100%)"
-        }}>
-          <h2 style={{
-            margin: 0,
-            fontSize: "24px",
-            fontWeight: "bold",
-            background: "linear-gradient(to right, #ff9900, #ff00ff)",
-            WebkitBackgroundClip: "text",
-            backgroundClip: "text",
-            color: "transparent"
-          }}>
-            Select Karaoke Track
-          </h2>
-          
-          {/* Close button for track panel */}
-          <button 
-            className="pink-arrow-button"
-            onClick={() => {
-              setIsTrackPanelVisible(false);
-            }}
-            style={{
-              width: "40px",
-              height: "40px",
-              fontSize: "18px"
-            }}
-          >
-            <FontAwesomeIcon icon={faChevronDown} />
-          </button>
-        </div>
-        
-        {/* Search and upload bar */}
-        <div style={{
-          padding: "15px 20px",
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          borderBottom: "1px solid rgba(255,255,255,0.1)",
-          background: "rgba(0,0,0,0.3)"
-        }}>
-          <div style={{
-            position: "relative",
-            width: "60%"
-          }}>
-            <input 
-              type="text"
-              placeholder="Search for tracks..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              style={{
-                width: "100%",
-                padding: "8px 15px 8px 35px",
-                borderRadius: "20px",
-                border: "none",
-                background: "rgba(255,255,255,0.15)",
-                color: "white",
-                fontSize: "14px"
-              }}
-            />
-            <span style={{ position: "absolute", left: "12px", top: "10px", color: "rgba(255,255,255,0.5)" }}>
-              <FontAwesomeIcon icon={faSearch} />
-            </span>
-          </div>
-          <button 
-            style={{
-              background: "rgba(255,0,204,0.2)",
-              border: "1px solid #ff00cc",
-              borderRadius: "20px",
-              padding: "8px 15px",
-              color: "#ff66cc",
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-              cursor: "pointer"
-            }}
-            onClick={() => fileInputRef.current.click()}
-          >
-            <FontAwesomeIcon icon={faUpload} />
-            <span>Upload Track</span>
-          </button>
-        </div>
-        
-        {/* Category tabs */}
-        <div className="category-tabs-container">
-          <div className="category-tabs">
-            {categories.map(category => (
-              <button
-                key={category}
-                onClick={() => setSelectedCategory(category)}
-                className={`category-button ${selectedCategory === category ? 'selected' : ''}`}
-              >
-                {category}
-              </button>
-            ))}
-          </div>
-        </div>
-        
-        {/* Tracks section */}
-        <div style={{ 
-          padding: "15px 20px", 
-          overflowY: "auto", 
-          flexGrow: 1
-        }}>
-          {sortedTracks.length > 0 ? (
-            <>
-              <h3 style={{ margin: "0 0 15px 0", fontSize: "18px", color: "rgba(255,255,255,0.9)" }}>
-                <FontAwesomeIcon icon={faStar} style={{ marginRight: "8px", color: "#ffcc00" }} />
-                Available Tracks
-              </h3>
-              
-              {/* Track list */}
-              <div>
-                {sortedTracks.map(track => (
-                  <div 
-                    key={track.id}
-                    style={{
-                      padding: "12px 15px",
-                      display: "flex",
-                      flexDirection: "column",
-                      borderRadius: "8px",
-                      marginBottom: "10px",
-                      background: track.id === selectedTrack 
-                        ? "rgba(255,0,204,0.15)"
-                        : "rgba(255,255,255,0.05)",
-                      border: track.id === selectedTrack 
-                        ? "1px solid rgba(255,0,204,0.3)"
-                        : "1px solid transparent",
-                      cursor: "pointer",
-                      transition: "all 0.2s ease"
-                    }}
-                    onClick={() => handleTrackSelect(track.id)}
-                  >
-                    {/* First row with track info */}
-                    <div style={{ 
-                      display: "flex",
-                      alignItems: "center",
-                      width: "100%"
-                    }}>
-                      <button
-                        onClick={(e) => togglePlay(track.id, e)}
-                        style={{
-                          width: "36px",
-                          height: "36px",
-                          borderRadius: "50%",
-                          background: "rgba(255,0,204,0.2)",
-                          border: "none",
-                          color: "#ff66cc",
-                          display: "flex",
-                          justifyContent: "center",
-                          alignItems: "center",
-                          marginRight: "15px",
-                          cursor: "pointer",
-                          flexShrink: 0
-                        }}
-                      >
-                        <FontAwesomeIcon icon={isPlaying === track.id ? faPause : faPlay} />
-                      </button>
-                      <div style={{ 
-                        flexGrow: 1,
-                        minWidth: 0 // Allows text to properly truncate
-                      }}>
-                        <div style={{ 
-                          fontSize: "16px", 
-                          fontWeight: "500",
-                          whiteSpace: "nowrap",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis"
-                        }}>
-                          {track.title}
-                        </div>
-                        <div style={{ 
-                          fontSize: "14px", 
-                          color: "rgba(255,255,255,0.6)",
-                          whiteSpace: "nowrap",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis"
-                        }}>
-                          {track.artist}
-                        </div>
-                      </div>
-                      <div style={{ 
-                        color: "rgba(255,255,255,0.6)", 
-                        fontSize: "14px",
-                        marginLeft: "15px",
-                        flexShrink: 0
-                      }}>
-                        {track.duration}
-                      </div>
-                    </div>
-                    
-                    {/* Second row with actions */}
-                    <div style={{ 
-                      display: "flex",
-                      justifyContent: "space-between",
-                      marginTop: "8px",
-                      alignItems: "center"
-                    }}>
-                      <div style={{ 
-                        fontSize: "12px", 
-                        color: "rgba(255,255,255,0.5)",
-                        background: "rgba(255,255,255,0.1)",
-                        padding: "2px 8px",
-                        borderRadius: "10px"
-                      }}>
-                        {track.category}
-                      </div>
-                      <div style={{ 
-                        display: "flex",
-                        gap: "10px"
-                      }}>
-                        <button
-                          onClick={(e) => deleteTrack(track.id, e)}
-                          style={{
-                            width: "28px",
-                            height: "28px",
-                            borderRadius: "50%",
-                            background: "rgba(255,0,0,0.2)",
-                            border: "none",
-                            color: "rgba(255,100,100,0.9)",
-                            display: "flex",
-                            justifyContent: "center",
-                            alignItems: "center",
-                            cursor: "pointer"
-                          }}
-                        >
-                          <FontAwesomeIcon icon={faTrash} style={{ fontSize: "14px" }} />
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleTrackSelect(track.id);
-                          }}
-                          style={{
-                            padding: "6px 12px",
-                            borderRadius: "15px",
-                            background: track.id === selectedTrack 
-                              ? "linear-gradient(135deg, #ff00cc, #660066)" 
-                              : "rgba(255,255,255,0.1)",
-                            border: "none",
-                            color: "white",
-                            fontSize: "14px",
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "5px",
-                            cursor: "pointer"
-                          }}
-                        >
-                          {track.id === selectedTrack ? (
-                            <>
-                              <FontAwesomeIcon icon={faCheck} />
-                              <span>Selected</span>
-                            </>
-                          ) : (
-                            <span>Select</span>
-                          )}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </>
-          ) : (
-            <div style={{ 
-              textAlign: "center", 
-              marginTop: "40px", 
-              color: "rgba(255,255,255,0.6)",
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: "20px"
-            }}>
-              <div style={{ fontSize: "24px", marginBottom: "10px" }}>
-                <FontAwesomeIcon icon={faMusic} />
-              </div>
-              <p>No tracks available. Upload some tracks to get started!</p>
-              <button
-                onClick={() => fileInputRef.current.click()}
-                style={{
-                  background: "rgba(255,0,204,0.2)",
-                  border: "1px solid #ff00cc",
-                  borderRadius: "20px",
-                  padding: "12px 25px",
-                  color: "#ff66cc",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "10px",
-                  cursor: "pointer",
-                  fontSize: "16px"
-                }}
-              >
-                <FontAwesomeIcon icon={faUpload} />
-                <span>Upload Your First Track</span>
-              </button>
-            </div>
-          )}
-          
-          {/* Recording configuration sliders */}
-          {selectedTrack && !isRecording && !recordedBlob && (
-            <div style={{
-              marginBottom: "20px",
-              padding: "15px",
-              background: "rgba(255,255,255,0.05)",
-              borderRadius: "8px",
-              border: "1px solid rgba(255,255,255,0.1)"
-            }}>
-              <h3 style={{ marginTop: 0, marginBottom: "15px", fontSize: "16px" }}>Configure Recording</h3>
-              
-              <div style={{ marginBottom: "15px" }}>
-                <div style={{ 
-                  display: "flex", 
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  marginBottom: "5px"
-                }}>
-                  <label style={{ fontSize: "14px" }}>Your Voice: {voiceGain}%</label>
-                  <span style={{ 
-                    width: "30px", 
-                    textAlign: "center", 
-                    fontSize: "12px",
-                    padding: "2px 5px",
-                    background: "rgba(255,0,204,0.2)",
-                    borderRadius: "4px"
-                  }}>
-                    {voiceGain}
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={voiceGain}
-                  onChange={(e) => setVoiceGain(parseInt(e.target.value))}
-                  style={{ width: "100%" }}
-                />
-              </div>
-              
-              <div style={{ marginBottom: "10px" }}>
-                <div style={{ 
-                  display: "flex", 
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  marginBottom: "5px"
-                }}>
-                  <label style={{ fontSize: "14px" }}>Backing Track: {trackGain}%</label>
-                  <span style={{ 
-                    width: "30px", 
-                    textAlign: "center", 
-                    fontSize: "12px",
-                    padding: "2px 5px",
-                    background: "rgba(51,51,255,0.2)",
-                    borderRadius: "4px"
-                  }}>
-                    {trackGain}
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={trackGain}
-                  onChange={(e) => setTrackGain(parseInt(e.target.value))}
-                  style={{ width: "100%" }}
-                />
-              </div>
-            </div>
-          )}
-          
-          {/* Recording preview if available */}
-          {recordedBlob && (
-            <div style={{
-              marginTop: "20px",
-              padding: "15px",
-              background: "rgba(255,255,255,0.05)",
-              borderRadius: "8px",
-              border: "1px solid rgba(255,255,255,0.1)"
-            }}>
-              <h3 style={{ marginTop: 0, marginBottom: "15px", fontSize: "18px", color: "#ff66cc" }}>
-                Your Karaoke Recording
-              </h3>
-              
-              <audio controls src={recordedBlob.url} style={{ width: "100%", marginBottom: "15px" }} />
-              
-              {!isMixing ? (
-                <div style={{ 
-                  display: "flex", 
-                  justifyContent: "space-between", 
-                  gap: "10px" 
-                }}>
-                  <button
-                    style={{
-                      flex: 1,
-                      padding: "10px 15px",
-                      background: "rgba(255,255,255,0.1)",
-                      border: "1px solid rgba(255,255,255,0.2)",
-                      borderRadius: "15px",
-                      color: "white",
-                      cursor: "pointer"
-                    }}
-                    onClick={() => setRecordedBlob(null)}
-                  >
-                    <FontAwesomeIcon icon={faTrash} style={{ marginRight: "8px" }} />
-                    Delete Recording
-                  </button>
-                  <button
-                    style={{
-                      flex: 1,
-                      padding: "10px 15px",
-                      background: "rgba(0,153,255,0.3)",
-                      border: "1px solid rgba(0,153,255,0.5)",
-                      borderRadius: "15px",
-                      color: "white",
-                      cursor: "pointer"
-                    }}
-                    onClick={downloadRecording}
-                  >
-                    <FontAwesomeIcon icon={faDownload} style={{ marginRight: "8px" }} />
-                    Download
-                  </button>
-                  <button
-                    style={{
-                      flex: 1,
-                      padding: "10px 15px",
-                      background: "linear-gradient(135deg, #ff00cc, #990099)",
-                      border: "none",
-                      borderRadius: "15px",
-                      color: "white",
-                      cursor: "pointer",
-                      fontWeight: "bold"
-                    }}
-                    onClick={mixRecording}
-                  >
-                    <FontAwesomeIcon icon={faMusic} style={{ marginRight: "8px" }} />
-                    Save to My Tracks
-                  </button>
-                </div>
-              ) : (
-                <div>
-                  <div style={{ marginBottom: "10px" }}>
-                    <div style={{ 
-                      fontSize: "14px", 
-                      marginBottom: "5px", 
-                      display: "flex", 
-                      justifyContent: "space-between" 
-                    }}>
-                      <span>Mixing your karaoke track...</span>
-                      <span>{mixProgress}%</span>
-                    </div>
-                    <div style={{ 
-                      height: "10px", 
-                      background: "rgba(255,255,255,0.1)", 
-                      borderRadius: "5px",
-                      overflow: "hidden"
-                    }}>
-                      <div style={{ 
-                        height: "100%", 
-                        width: `${mixProgress}%`, 
-                        background: "linear-gradient(to right, #ff00cc, #9900ff)",
-                        transition: "width 0.3s ease-out"
-                      }}></div>
-                    </div>
-                  </div>
-                  <p style={{ 
-                    fontSize: "12px", 
-                    color: "rgba(255,255,255,0.6)",
-                    textAlign: "center" 
-                  }}>
-                    Please wait while we process your recording...
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Record button at bottom - only shows when track is selected */}
-        {selectedTrack && (
-          <div style={{
-            padding: "15px 20px",
-            background: "linear-gradient(to top, rgba(18,18,18,1), rgba(18,18,18,0.8))",
-            borderTop: "1px solid rgba(255,255,255,0.05)",
-            display: "flex",
-            justifyContent: "center"
-          }}>
-            {!isRecording ? (
-              <button
-                style={{
-                  background: "linear-gradient(135deg, #ff00cc, #660066)",
-                  border: "none",
-                  borderRadius: "30px",
-                  padding: "12px 25px",
-                  width: "100%",
-                  maxWidth: "400px",
-                  color: "white",
-                  fontWeight: "bold",
-                  fontSize: "16px",
-                  cursor: "pointer",
-                  boxShadow: "0 0 20px rgba(255, 0, 204, 0.4)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: "10px"
-                }}
-                onClick={startRecording}
-              >
-                <FontAwesomeIcon icon={faMicrophone} />
-                Sing with this track
-              </button>
-            ) : (
-              <button
-                style={{
-                  background: "linear-gradient(135deg, #ff3333, #990000)",
-                  border: "none",
-                  borderRadius: "30px",
-                  padding: "12px 25px",
-                  width: "100%",
-                  maxWidth: "400px",
-                  color: "white",
-                  fontWeight: "bold",
-                  fontSize: "16px",
-                  cursor: "pointer",
-                  boxShadow: "0 0 20px rgba(255, 51, 51, 0.4)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: "10px",
-                  animation: "pulse 1.5s infinite"
-                }}
-                onClick={stopRecording}
-              >
-                <FontAwesomeIcon icon={faStop} />
-                Stop Recording
-              </button>
-            )}
-          </div>
-        )}
-      </div>
+        onUserNameChange={setUploadUserName}
+        onSongTitleChange={setUploadSongTitle}
+        onDescriptionChange={setUploadDescription}
+        onCategoryChange={setUploadCategory}
+        onHasSongVersionChange={setHasSongVersion}
+        onLyricsChange={setUploadLyrics}
+        onUpload={performUpload}
+        onComingSoon={showComingSoonMessage}
+      />
       
-      {/* Upload Panel Modal */}
-      {isUploadPanelVisible && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          width: '100%',
-          height: '100%',
-          background: 'rgba(0,0,0,0.8)',
-          zIndex: 100,
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center'
-        }}>
-          <div style={{
-            width: '90%',
-            maxWidth: '500px',
-            background: 'linear-gradient(to bottom, rgba(36,14,50,1) 0%, rgba(18,18,18,1) 100%)',
-            borderRadius: '15px',
-            padding: '20px',
-            boxShadow: '0 10px 30px rgba(0,0,0,0.5)'
-          }}>
-            <h3 style={{
-              fontSize: '20px',
-              margin: '0 0 20px 0',
-              color: 'white',
-              textAlign: 'center',
-              background: 'linear-gradient(to right, #ff9900, #ff00ff)',
-              WebkitBackgroundClip: 'text',
-              backgroundClip: 'text',
-              color: 'transparent'
-            }}>
-              Upload Track
-            </h3>
-            
-            <div style={{
-              marginBottom: '20px'
-            }}>
-              <p style={{ 
-                margin: '0 0 5px 0',
-                color: 'rgba(255,255,255,0.7)'
-              }}>
-                Selected file: <span style={{ color: 'white' }}>{uploadFile?.name}</span>
-              </p>
-            </div>
-            
-            <div style={{
-              marginBottom: '20px'
-            }}>
-              <p style={{ 
-                margin: '0 0 10px 0',
-                color: 'rgba(255,255,255,0.7)'
-              }}>
-                Select category:
-              </p>
-              
-              <div style={{
-                display: 'flex',
-                flexWrap: 'wrap',
-                gap: '10px'
-              }}>
-                {categories.filter(cat => cat !== "All" && cat !== "My Tracks").map(category => (
-                  <button
-                    key={category}
-                    onClick={() => setUploadCategory(category)}
-                    style={{
-                      padding: '8px 15px',
-                      borderRadius: '20px',
-                      background: uploadCategory === category
-                        ? 'linear-gradient(135deg, rgba(255,0,204,0.3), rgba(51,51,255,0.3))'
-                        : 'rgba(255,255,255,0.1)',
-                      border: uploadCategory === category
-                        ? '1px solid rgba(255,0,204,0.5)'
-                        : '1px solid rgba(255,255,255,0.1)',
-                      color: uploadCategory === category ? 'white' : 'rgba(255,255,255,0.7)',
-                      cursor: 'pointer',
-                      fontSize: '14px'
-                    }}
-                  >
-                    {category}
-                  </button>
-                ))}
-              </div>
-            </div>
-            
-            <div style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              marginTop: '30px'
-            }}>
-              <button
-                onClick={() => {
-                  setIsUploadPanelVisible(false);
-                  setUploadFile(null);
-                }}
-                style={{
-                  padding: '10px 20px',
-                  borderRadius: '10px',
-                  background: 'rgba(255,255,255,0.1)',
-                  border: 'none',
-                  color: 'white',
-                  cursor: 'pointer'
-                }}
-                disabled={isUploading}
-              >
-                Cancel
-              </button>
-              
-              <button
-                onClick={performUpload}
-                style={{
-                  padding: '10px 25px',
-                  borderRadius: '10px',
-                  background: 'linear-gradient(135deg, #ff00cc, #660066)',
-                  border: 'none',
-                  color: 'white',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px'
-                }}
-                disabled={isUploading}
-              >
-                {isUploading ? (
-                  <>
-                    <div style={{ 
-                      width: '16px', 
-                      height: '16px', 
-                      border: '2px solid rgba(255,255,255,0.3)', 
-                      borderTop: '2px solid white',
-                      borderRadius: '50%',
-                      animation: 'spin 1s linear infinite'
-                    }}></div>
-                    <span>Uploading...</span>
-                  </>
-                ) : (
-                  <>
-                    <FontAwesomeIcon icon={faUpload} />
-                    <span>Upload Track</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Lyrics Panel Component - FIXED VERSION */}
+      <LyricsPanel
+        visible={isLyricsPanelVisible}
+        track={currentLyricsTrack}
+        isPlaying={isPlaying === currentLyricsTrack?.id}
+        onClose={() => setIsLyricsPanelVisible(false)}
+        onTogglePlay={() => {
+          if (currentLyricsTrack) {
+            if (isPlaying === currentLyricsTrack.id) {
+              // If currently playing, stop it
+              audioManager.stopPlayback();
+              setIsPlaying(null);
+            } else {
+              // Start playing
+              audioManager.playTrack(
+                currentLyricsTrack,
+                () => {
+                  // Success callback
+                  setIsPlaying(currentLyricsTrack.id);
+                },
+                (err) => {
+                  // Error callback
+                  console.error("Error playing from lyrics panel:", err);
+                  setIsPlaying(null);
+                  showToast('Unable to play this track. It may be in an unsupported format.', 'error');
+                }
+              );
+            }
+          }
+        }}
+        currentTime={currentPlaybackTime}
+      />
       
-      {/* Toast Notification */}
-      <ToastNotification />
+      {/* Toast Notification Component */}
+      <ToastNotification 
+        visible={toast.visible}
+        message={toast.message}
+        type={toast.type}
+      />
       
-      {/* Confirmation Dialog */}
-      <ConfirmationDialog />
+      {/* Confirmation Dialog Component */}
+      <ConfirmDialog 
+        visible={confirmDialog.visible}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        onConfirm={confirmDialog.onConfirm}
+        onCancel={confirmDialog.onCancel}
+      />
       
       <style jsx global>{`
         /* Body and HTML full height */
