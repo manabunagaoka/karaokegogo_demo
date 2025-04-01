@@ -1,9 +1,8 @@
-// src/components/NavBar.tsx
 "use client";
 
 import { useState } from "react";
 import Link from "next/link";
-import { useAuth } from "@clerk/nextjs";
+import { useAuth } from "@/lib/auth-provider";
 
 // Placeholder logo component
 function LogoPlaceholder() {
@@ -86,57 +85,9 @@ export function NavBar() {
       {isMenuOpen && (
         <div className="md:hidden bg-black/90 backdrop-blur-md mt-4 py-4 px-6 rounded-lg">
           <div className="flex flex-col space-y-4">
-            <Link 
-              href="/#features" 
-              className="text-white hover:text-pink-400 transition-colors"
-              onClick={() => setIsMenuOpen(false)}
-            >
-              Features
-            </Link>
-            <Link 
-              href="/#pricing" 
-              className="text-white hover:text-pink-400 transition-colors"
-              onClick={() => setIsMenuOpen(false)}
-            >
-              Pricing
-            </Link>
-            <Link 
-              href="/#about" 
-              className="text-white hover:text-pink-400 transition-colors"
-              onClick={() => setIsMenuOpen(false)}
-            >
-              About
-            </Link>
-            
-            <hr className="border-gray-700" />
-            
-            {/* Auth Buttons */}
-            {isSignedIn ? (
-              <Link 
-                href="/dashboard" 
-                className="px-4 py-2 bg-pink-600 hover:bg-pink-700 text-white font-medium rounded-full text-center transition-colors"
-                onClick={() => setIsMenuOpen(false)}
-              >
-                Dashboard
-              </Link>
-            ) : (
-              <div className="flex flex-col space-y-2">
-                <Link 
-                  href="/login" 
-                  className="px-4 py-2 border border-white text-white font-medium rounded-full text-center hover:bg-white/10 transition-colors"
-                  onClick={() => setIsMenuOpen(false)}
-                >
-                  Sign In
-                </Link>
-                <Link 
-                  href="/register" 
-                  className="px-4 py-2 bg-pink-600 hover:bg-pink-700 text-white font-medium rounded-full text-center transition-colors"
-                  onClick={() => setIsMenuOpen(false)}
-                >
-                  Sign Up
-                </Link>
-              </div>
-            )}
+            <Link href="/#features" className="text-white">Features</Link>
+            <Link href="/#pricing" className="text-white">Pricing</Link>
+            <Link href="/#about" className="text-white">About</Link>
           </div>
         </div>
       )}

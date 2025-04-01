@@ -1,9 +1,9 @@
-import { SignUp } from "@/lib/auth-provider";
+import { SignIn } from "@/lib/auth-provider";
 
-export default function SignUpPage() {
+export default function SignInPage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-black">
-      <SignUp 
+      <SignIn 
         appearance={{
           elements: {
             card: "bg-[rgba(20,20,30,0.85)] backdrop-blur-lg shadow-xl",

@@ -1,11 +1,8 @@
-import { authMiddleware } from "@clerk/nextjs";
- 
-export default authMiddleware({
-  // Routes that can be accessed while signed out
-  publicRoutes: ["/", "/signin", "/signup"]
-});
- 
+// This is an empty middleware file that doesn't enforce authentication
 export const config = {
-  // Runs the middleware on all routes except static files and api
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|images).*)"],
+  matcher: [] // Empty matcher means middleware won't run on any routes
 };
+
+export default function middleware() {
+  return;
+}
