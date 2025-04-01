@@ -1,3 +1,4 @@
+import { AuthWrapper } from '@/lib/auth-wrapper';
 import { Providers } from "./providers";
 import "./globals.css";
 
@@ -28,7 +29,9 @@ export default function RootLayout({
         />
       </head>
       <body style={{ margin: 0, padding: 0, fontFamily: 'sans-serif' }}>
-        <Providers>{children}</Providers>
+        <AuthWrapper>
+          <Providers>{children}</Providers>
+        </AuthWrapper>
       </body>
     </html>
   );
