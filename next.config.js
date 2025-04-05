@@ -1,16 +1,19 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Your existing config
+  // Disable ESLint during builds to prevent failing due to linting errors
   eslint: {
-    // This will completely ignore ESLint during builds
-    ignoreDuringBuilds: true,
+    ignoreDuringBuilds: true
   },
-  // Keep any other existing config options you had
+  
+  // Fix the experimental config
+  experimental: {},
+  
+  // Add serverExternalPackages instead of serverComponentsExternalPackages
+  serverExternalPackages: ['libmediaify'],
+  
+  // Keep existing configurations
   images: {
     domains: ['localhost', 'firebasestorage.googleapis.com', 'storage.googleapis.com'],
-  },
-  experimental: {
-    serverExternalPackages: ['libmediaify']
   }
 };
 
