@@ -2,13 +2,14 @@
 
 import React from 'react';
 
-// This is a temporary fix to make the build pass
-export const SignUp = () => {
-  return <div>Sign Up functionality coming soon</div>;
+// Updated SignUp component that accepts appearance prop
+export const SignUp = ({ appearance }: { appearance?: any }) => {
+  return <div className="text-white p-8 rounded-lg" style={{ background: 'rgba(20,20,30,0.85)' }}>Sign Up functionality bypassed for demo</div>;
 };
 
-export const SignIn = () => {
-  return <div>Sign In functionality coming soon</div>;
+// Updated SignIn component that accepts appearance prop
+export const SignIn = ({ appearance }: { appearance?: any }) => {
+  return <div className="text-white p-8 rounded-lg" style={{ background: 'rgba(20,20,30,0.85)' }}>Sign In functionality bypassed for demo</div>;
 };
 
 // Include any existing exports or functionality your application needs
@@ -16,10 +17,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   return <>{children}</>;
 };
 
+// Update useAuth to return authenticated user for demo
 export const useAuth = () => {
   return {
-    isAuthenticated: false,
-    user: null,
+    isAuthenticated: true, // Always authenticated for demo
+    user: {
+      id: "demo-user",
+      firstName: "Demo",
+      lastName: "User",
+      imageUrl: "",
+      fullName: "Demo User",
+      username: "demo"
+    },
+    isLoaded: true,
+    isSignedIn: true,
     login: async () => {},
     logout: async () => {},
     signup: async () => {},
