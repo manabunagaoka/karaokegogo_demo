@@ -191,50 +191,51 @@ export default function Home() {
   };
   
   // Handle play/pause toggle for a track
-  const togglePlay = (trackId: number | string, event: React.MouseEvent) => {
-    event.stopPropagation();
-    
-    try {
-      if (isPlaying === trackId) {
-        // Currently playing this track, so stop it
-        audioManager.stopPlayback();
-        setIsPlaying(null);
-      } else {
-        // If any track is currently playing, stop it first
-        if (isPlaying !== null) {
-          audioManager.stopPlayback();
-          setIsPlaying(null);
-        }
-        
-        // Play a different track
-        const trackToPlay = tracks.find(track => track.id === trackId);
-        if (trackToPlay) {
-          console.log('Starting playback for track:', trackId);
-          
-          setIsPlaying(null); // Reset state immediately to avoid multiple plays
-          
-          audioManager.playTrack(
-            trackToPlay,
-            () => {
-              // Success callback
-              console.log('Playback successfully started for track:', trackId);
-              setIsPlaying(trackId);
-            },
-            (err) => {
-              // Error callback
-              console.error("Playback error:", err.message);
-              setIsPlaying(null);
-              showToast('Unable to play this track: ' + err.message, 'error');
-            }
-          );
-        }
-      }
-    } catch (error) {
-      console.error("Error toggling playback:", error);
+  // Replace your togglePlay function with this:
+const togglePlay = (trackId: number | string, event: React.MouseEvent) => {
+  event.stopPropagation();
+  
+  try {
+    if (isPlaying === trackId) {
+      // Currently playing this track, so stop it
+      audioManager.stopPlayback();
       setIsPlaying(null);
-      showToast('Error playing track. Please try another.', 'error');
+      console.log('Playback stopped for track:', trackId);
+    } else {
+      // If any track is currently playing, stop it first
+      if (isPlaying !== null) {
+        audioManager.stopPlayback();
+      }
+      
+      // Play a different track
+      const trackToPlay = tracks.find(track => track.id === trackId);
+      if (trackToPlay) {
+        console.log('Starting playback for track:', trackId);
+        
+        // Important: Set state BEFORE playing to prevent multiple simultaneous attempts
+        setIsPlaying(trackId);
+        
+        audioManager.playTrack(
+          trackToPlay,
+          () => {
+            // Success callback - already set the state above
+            console.log('Playback successfully started for track:', trackId);
+          },
+          (err) => {
+            // Error callback
+            console.error("Playback error:", err.message);
+            setIsPlaying(null); // Reset state on error
+            showToast('Unable to play this track: ' + err.message, 'error');
+          }
+        );
+      }
     }
-  };
+  } catch (error) {
+    console.error("Error toggling playback:", error);
+    setIsPlaying(null);
+    showToast('Error playing track. Please try another.', 'error');
+  }
+};
 
   // Toggle play for selected track
   const toggleSelectedTrackPlay = (event: React.MouseEvent) => {

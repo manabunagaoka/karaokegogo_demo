@@ -6,8 +6,8 @@ interface TrackControlsProps {
   selectedTrack: number | string | null;
   isPlaying: boolean;
   onTogglePlay: (e: React.MouseEvent) => void;
-  onNextTrack?: () => void;  // New prop for next track
-  onPreviousTrack?: () => void;  // New prop for previous track
+  onNextTrack?: () => void;
+  onPreviousTrack?: () => void;
 }
 
 export default function TrackControls({
@@ -29,10 +29,12 @@ export default function TrackControls({
     }}>
       {/* Previous Track Button */}
       <button
-        onClick={onPreviousTrack}
-        disabled={!selectedTrack || !onPreviousTrack}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (onPreviousTrack) onPreviousTrack();
+        }}
         style={{
-          backgroundColor: !selectedTrack || !onPreviousTrack ? "rgba(255, 255, 255, 0.05)" : "rgba(255, 255, 255, 0.1)",
+          backgroundColor: "rgba(255, 255, 255, 0.1)",
           border: "1px solid rgba(255, 255, 255, 0.2)",
           borderRadius: "50%",
           width: "40px",
@@ -40,8 +42,8 @@ export default function TrackControls({
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          cursor: !selectedTrack || !onPreviousTrack ? "not-allowed" : "pointer",
-          color: !selectedTrack || !onPreviousTrack ? "rgba(255, 255, 255, 0.3)" : "white"
+          cursor: "pointer",
+          color: "white"
         }}
       >
         <i className="fas fa-step-backward" style={{ fontSize: "14px" }}></i>
@@ -49,11 +51,12 @@ export default function TrackControls({
       
       {/* Play/Pause Button */}
       <button
-        onClick={onTogglePlay}
-        disabled={!selectedTrack}
+        onClick={(e) => {
+          e.stopPropagation();
+          onTogglePlay(e);
+        }}
         style={{
-          backgroundColor: !selectedTrack ? "rgba(255, 255, 255, 0.05)" : 
-                          isPlaying ? "rgba(255, 102, 204, 0.8)" : "rgba(255, 255, 255, 0.1)",
+          backgroundColor: isPlaying ? "rgba(255, 102, 204, 0.8)" : "rgba(255, 255, 255, 0.1)",
           border: "1px solid rgba(255, 255, 255, 0.2)",
           borderRadius: "50%",
           width: "60px",
@@ -61,8 +64,8 @@ export default function TrackControls({
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          cursor: !selectedTrack ? "not-allowed" : "pointer",
-          color: !selectedTrack ? "rgba(255, 255, 255, 0.3)" : "white"
+          cursor: "pointer",
+          color: "white"
         }}
       >
         <i className={isPlaying ? "fas fa-pause" : "fas fa-play"} style={{ fontSize: "20px" }}></i>
@@ -70,10 +73,12 @@ export default function TrackControls({
       
       {/* Next Track Button */}
       <button
-        onClick={onNextTrack}
-        disabled={!selectedTrack || !onNextTrack}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (onNextTrack) onNextTrack();
+        }}
         style={{
-          backgroundColor: !selectedTrack || !onNextTrack ? "rgba(255, 255, 255, 0.05)" : "rgba(255, 255, 255, 0.1)",
+          backgroundColor: "rgba(255, 255, 255, 0.1)",
           border: "1px solid rgba(255, 255, 255, 0.2)",
           borderRadius: "50%",
           width: "40px",
@@ -81,8 +86,8 @@ export default function TrackControls({
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          cursor: !selectedTrack || !onNextTrack ? "not-allowed" : "pointer",
-          color: !selectedTrack || !onNextTrack ? "rgba(255, 255, 255, 0.3)" : "white"
+          cursor: "pointer",
+          color: "white"
         }}
       >
         <i className="fas fa-step-forward" style={{ fontSize: "14px" }}></i>
