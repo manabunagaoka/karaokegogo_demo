@@ -1,5 +1,3 @@
-// src/lib/audio-manager.ts
-
 export interface Track {
   id: number | string;
   title: string;
@@ -13,276 +11,147 @@ export interface Track {
   lyrics?: string;
   isKaraokeTrack?: boolean;
   userTrack?: boolean;
-  [key: string]: any; // Allow additional properties
 }
 
 export interface AudioManager {
-  playTrack: (track: Track, onSuccess?: () => void, onError?: (error: any) => void) => void;
-  pausePlayback: () => void;
-  resumePlayback: () => void;
+  playTrack: (track: Track, onSuccess?: () => void, onError?: (error: Error) => void) => void;
   stopPlayback: () => void;
   getCurrentTime: () => number | undefined;
-  getDuration: () => number | undefined;
-  setVolume: (volume: number) => void;
-  getVolume: () => number;
-  isPlaying: () => boolean;
 }
 
-export const createAudioManager = (): AudioManager => {
+export function createAudioManager(): AudioManager {
+  // Using a class variable instead of a local variable to ensure better cleanup
   let audioElement: HTMLAudioElement | null = null;
-  let currentTrack: Track | null = null;
-  let isCurrentlyPlaying = false;
   
-  const createAudio = () => {
+  // Function to safely clean up the audio element
+  const cleanupAudio = () => {
     try {
       if (audioElement) {
-        // Clean up existing audio element
-        audioElement.pause();
-        audioElement.src = '';
-        audioElement.load();
-      }
-      
-      audioElement = new Audio();
-      
-      // Add error handler
-      audioElement.onerror = (event) => {
-        // Convert MediaError to a more descriptive error
-        const mediaError = audioElement?.error;
-        let errorMessage = "Unknown audio error";
-        
-        if (mediaError) {
-          switch (mediaError.code) {
-            case MediaError.MEDIA_ERR_ABORTED:
-              errorMessage = "Playback aborted by the user";
-              break;
-            case MediaError.MEDIA_ERR_NETWORK:
-              errorMessage = "Network error occurred while loading the audio";
-              break;
-            case MediaError.MEDIA_ERR_DECODE:
-              errorMessage = "Audio decoding error";
-              break;
-            case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED:
-              errorMessage = "Audio format not supported";
-              break;
-            default:
-              errorMessage = `Audio error: ${mediaError.message || "Unknown"}`;
-              break;
-          }
+        // Properly clean up media session
+        if ('mediaSession' in navigator) {
+          navigator.mediaSession.setActionHandler('play', null);
+          navigator.mediaSession.setActionHandler('pause', null);
+          navigator.mediaSession.setActionHandler('stop', null);
         }
         
-        console.error(errorMessage);
-        isCurrentlyPlaying = false;
-      };
-      
-      return true;
+        // Remove all event listeners by cloning and replacing
+        const clone = document.createElement('audio');
+        if (audioElement.parentNode) {
+          audioElement.parentNode.replaceChild(clone, audioElement);
+        }
+        
+        // Clear the source and pause
+        audioElement.pause();
+        audioElement.removeAttribute('src');
+        audioElement.load();
+        
+        // Set to null to allow garbage collection
+        audioElement = null;
+      }
     } catch (error) {
-      console.error("Error creating audio element:", error);
-      return false;
+      console.log('Error during audio cleanup:', error);
+      // Force cleanup
+      audioElement = null;
     }
   };
   
-  const playTrack = (track: Track, onSuccess?: () => void, onError?: (error: any) => void) => {
+  const playTrack = (track: Track, onSuccess?: () => void, onError?: (error: Error) => void) => {
+    // Always clean up first
+    cleanupAudio();
+    
     try {
       // Create a new audio element
-      const success = createAudio();
-      if (!success || !audioElement) {
-        const error = new Error("Could not create audio element");
-        if (onError) onError(error);
-        return;
-      }
+      audioElement = new Audio();
       
-      // Set the current track
-      currentTrack = track;
+      // Add to DOM for better control (but hidden)
+      audioElement.style.display = 'none';
+      document.body.appendChild(audioElement);
       
-      // Reset any previous error handlers
-      const errorHandler = (event: Event | string) => {
-        // Get error from the audio element
-        const mediaError = audioElement?.error;
-        let errorMessage = "Failed to play audio";
-        
-        if (mediaError) {
-          switch (mediaError.code) {
-            case MediaError.MEDIA_ERR_ABORTED:
-              errorMessage = "Playback aborted by the user";
-              break;
-            case MediaError.MEDIA_ERR_NETWORK:
-              errorMessage = "Network error occurred while loading the audio";
-              break;
-            case MediaError.MEDIA_ERR_DECODE:
-              errorMessage = "Audio decoding error";
-              break;
-            case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED:
-              errorMessage = "Audio format not supported";
-              break;
-            default:
-              errorMessage = `Audio error (${mediaError.code})`;
-              break;
-          }
+      // Enable CORS for cross-origin resources
+      audioElement.crossOrigin = "anonymous";
+      
+      // Set preload to auto to ensure it loads
+      audioElement.preload = "auto";
+      
+      // Generate a unique URL with cache busting
+      const timestamp = new Date().getTime();
+      const audioUrl = track.audioUrl.includes('?') 
+        ? `${track.audioUrl}&t=${timestamp}` 
+        : `${track.audioUrl}?t=${timestamp}`;
+      
+      console.log('Loading audio from:', audioUrl);
+      
+      // Set up event listeners before setting source
+      audioElement.addEventListener('canplaythrough', () => {
+        if (audioElement) {
+          audioElement.play()
+            .then(() => {
+              console.log('Playback started successfully');
+              if (onSuccess) onSuccess();
+              
+              // Set up media session
+              if ('mediaSession' in navigator) {
+                navigator.mediaSession.metadata = new MediaMetadata({
+                  title: track.title,
+                  artist: track.artist,
+                  album: track.description || 'Karaoke Track',
+                });
+              }
+            })
+            .catch((playError) => {
+              console.error('Play failed:', playError);
+              if (onError) onError(new Error(`Playback failed: ${playError.message || 'Unknown error'}`));
+              cleanupAudio();
+            });
         }
+      }, { once: true }); // Only trigger once
+      
+      // Handle errors properly
+      audioElement.addEventListener('error', (event) => {
+        const errorMessage = 
+          audioElement?.error?.message || 
+          audioElement?.error?.code?.toString() || 
+          'Audio format not supported';
         
-        console.error(errorMessage);
-        isCurrentlyPlaying = false;
+        console.error('Audio error event:', event);
+        console.error('Audio error details:', audioElement?.error);
         
+        // Notify caller about the error
         if (onError) onError(new Error(errorMessage));
-      };
+        
+        // Clean up
+        cleanupAudio();
+      });
       
-      // Set up event handlers
-      audioElement.onerror = errorHandler;
+      // Handle natural end of playback
+      audioElement.addEventListener('ended', () => {
+        console.log('Playback ended naturally');
+        cleanupAudio();
+      });
       
-      // Safely load and play
-      audioElement.src = track.audioUrl;
+      // Set source and load
+      audioElement.src = audioUrl;
       audioElement.load();
       
-      // Set up play handling
-      const playAudio = () => {
-        if (!audioElement) return;
-        
-        audioElement.play()
-          .then(() => {
-            isCurrentlyPlaying = true;
-            if (onSuccess) onSuccess();
-          })
-          .catch((error) => {
-            console.error("Play failed:", error.message);
-            isCurrentlyPlaying = false;
-            if (onError) onError(error);
-          });
-      };
-      
-      // Handle the canplaythrough event
-      audioElement.oncanplaythrough = () => {
-        playAudio();
-      };
-      
-      // Set a timeout in case canplaythrough doesn't fire
-      const timeout = setTimeout(() => {
-        if (audioElement && !isCurrentlyPlaying) {
-          // Try to play even if canplaythrough hasn't fired
-          playAudio();
-        }
-      }, 2000);
-      
-      // Clean up timeout when playback starts or errors
-      audioElement.onplaying = () => {
-        clearTimeout(timeout);
-      };
-      
-      // Handle end of playback
-      audioElement.onended = () => {
-        isCurrentlyPlaying = false;
-        stopPlayback();
-      };
-      
     } catch (error) {
-      console.error("Error in playTrack:", error);
-      isCurrentlyPlaying = false;
-      if (onError) onError(error);
-    }
-  };
-  
-  const pausePlayback = () => {
-    try {
-      if (audioElement && !audioElement.paused) {
-        audioElement.pause();
-        isCurrentlyPlaying = false;
-      }
-    } catch (error) {
-      console.error("Error in pausePlayback:", error);
-      isCurrentlyPlaying = false;
-    }
-  };
-  
-  const resumePlayback = () => {
-    try {
-      if (audioElement && audioElement.paused) {
-        audioElement.play()
-          .then(() => {
-            isCurrentlyPlaying = true;
-          })
-          .catch((error) => {
-            console.error("Resume error:", error);
-            isCurrentlyPlaying = false;
-          });
-      }
-    } catch (error) {
-      console.error("Error in resumePlayback:", error);
-      isCurrentlyPlaying = false;
+      console.error('Error setting up audio playback:', error);
+      if (onError) onError(error instanceof Error ? error : new Error('Failed to set up audio playback'));
+      cleanupAudio();
     }
   };
   
   const stopPlayback = () => {
-    try {
-      if (audioElement) {
-        audioElement.pause();
-        try {
-          audioElement.currentTime = 0;
-        } catch (err) {
-          // Some browsers throw errors when setting currentTime if the audio is not loaded
-          console.log("Could not reset currentTime:", err);
-        }
-        isCurrentlyPlaying = false;
-      }
-    } catch (error) {
-      console.error("Error in stopPlayback:", error);
-      isCurrentlyPlaying = false;
-    }
+    console.log('Stopping playback');
+    cleanupAudio();
   };
   
-  const getCurrentTime = (): number | undefined => {
-    try {
-      if (audioElement) {
-        return audioElement.currentTime;
-      }
-    } catch (error) {
-      console.error("Error getting current time:", error);
-    }
-    return undefined;
-  };
-  
-  const getDuration = (): number | undefined => {
-    try {
-      if (audioElement && !isNaN(audioElement.duration)) {
-        return audioElement.duration;
-      }
-    } catch (error) {
-      console.error("Error getting duration:", error);
-    }
-    return undefined;
-  };
-  
-  const setVolume = (volume: number) => {
-    try {
-      if (audioElement) {
-        // Ensure volume is between 0 and 1
-        audioElement.volume = Math.max(0, Math.min(1, volume));
-      }
-    } catch (error) {
-      console.error("Error setting volume:", error);
-    }
-  };
-  
-  const getVolume = (): number => {
-    try {
-      return audioElement ? audioElement.volume : 1;
-    } catch (error) {
-      console.error("Error getting volume:", error);
-      return 1;
-    }
-  };
-  
-  const isPlaying = (): boolean => {
-    return isCurrentlyPlaying;
+  const getCurrentTime = () => {
+    return audioElement ? audioElement.currentTime : undefined;
   };
   
   return {
     playTrack,
-    pausePlayback,
-    resumePlayback,
     stopPlayback,
-    getCurrentTime,
-    getDuration,
-    setVolume,
-    getVolume,
-    isPlaying
+    getCurrentTime
   };
-};
+}

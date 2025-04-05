@@ -25,6 +25,8 @@ interface TrackPanelProps {
   onUploadClick: () => void;
   onToggleSelectedTrack: (e: React.MouseEvent) => void;
   onViewLyrics?: (trackId: number | string) => void;
+  onNextTrack?: () => void;  // Added next track functionality
+  onPreviousTrack?: () => void;  // Added previous track functionality
 }
 
 export default function TrackPanel({
@@ -43,7 +45,9 @@ export default function TrackPanel({
   onSelectCategory,
   onUploadClick,
   onToggleSelectedTrack,
-  onViewLyrics
+  onViewLyrics,
+  onNextTrack,  // Added next track functionality
+  onPreviousTrack  // Added previous track functionality
 }: TrackPanelProps) {
   // Helper function to find paired tracks (vocal/instrumental versions of the same song)
   const findPairedTrack = (trackId: string | number) => {
@@ -380,11 +384,13 @@ export default function TrackPanel({
         />
       ) : enhancedTrackList}
 
-      {/* Track controls */}
+      {/* Track controls with next/previous functionality */}
       <TrackControls 
         selectedTrack={selectedTrack}
         isPlaying={isPlaying === selectedTrack}
         onTogglePlay={onToggleSelectedTrack}
+        onNextTrack={onNextTrack}  // Added next track functionality
+        onPreviousTrack={onPreviousTrack}  // Added previous track functionality
       />
     </div>
   );

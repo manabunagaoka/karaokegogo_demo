@@ -11,6 +11,67 @@ import LyricsPanel from '@/components/karaoke/LyricsPanel';
 import { createAudioManager, Track } from '@/lib/audio-manager';
 import { createTrackStorage } from '@/lib/track-storage';
 
+// Function to upload large files in chunks
+async function uploadLargeFile(file: File): Promise<string> {
+  try {
+    // Generate a unique ID for this file upload
+    const fileId = Date.now().toString() + '-' + Math.random().toString(36).substring(2);
+    
+    // Set chunk size to 5MB
+    const chunkSize = 5 * 1024 * 1024; // 5MB chunks
+    const totalChunks = Math.ceil(file.size / chunkSize);
+    
+    console.log(`Starting chunked upload: ${file.name} (${file.size} bytes, ${totalChunks} chunks)`);
+    
+    // Upload each chunk
+    for (let i = 0; i < totalChunks; i++) {
+      // Calculate start and end bytes for this chunk
+      const start = i * chunkSize;
+      const end = Math.min(file.size, start + chunkSize);
+      const chunk = file.slice(start, end);
+      
+      // Create form data for this chunk
+      const formData = new FormData();
+      formData.append('fileId', fileId);
+      formData.append('chunkIndex', i.toString());
+      formData.append('totalChunks', totalChunks.toString());
+      formData.append('fileName', file.name);
+      formData.append('chunk', chunk);
+      
+      // Upload this chunk
+      const response = await fetch('/api/chunk-upload', {
+        method: 'POST',
+        body: formData,
+      });
+      
+      if (!response.ok) {
+        const text = await response.text();
+        console.error(`Error uploading chunk ${i}:`, text);
+        throw new Error(`Failed to upload chunk ${i}: ${response.status}`);
+      }
+      
+      const result = await response.json();
+      
+      if (result.status === 'complete') {
+        console.log('Upload completed successfully!');
+        return result.fileUrl;
+      }
+      
+      console.log(`Chunk ${i + 1}/${totalChunks} uploaded (${Math.round(result.progress)}%)`);
+    }
+    
+    throw new Error('Upload failed: Not all chunks were processed');
+  } catch (error) {
+    console.error('Upload error:', error);
+    throw error;
+  }
+}
+
+// Helper function to generate unique IDs
+function generateUniqueId() {
+  return `track-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+}
+
 export default function Home() {
   // Create managers
   const audioManager = useRef(createAudioManager()).current;
@@ -31,6 +92,7 @@ export default function Home() {
   const [uploadDescription, setUploadDescription] = useState("");
   const [hasSongVersion, setHasSongVersion] = useState(false);
   const [uploadLyrics, setUploadLyrics] = useState("");
+  const [uploadProgress, setUploadProgress] = useState(0); // Added for upload progress
   
   // Audio State
   const [tracks, setTracks] = useState<Track[]>([]);
@@ -138,19 +200,31 @@ export default function Home() {
         audioManager.stopPlayback();
         setIsPlaying(null);
       } else {
+        // If any track is currently playing, stop it first
+        if (isPlaying !== null) {
+          audioManager.stopPlayback();
+          setIsPlaying(null);
+        }
+        
         // Play a different track
         const trackToPlay = tracks.find(track => track.id === trackId);
         if (trackToPlay) {
+          console.log('Starting playback for track:', trackId);
+          
+          setIsPlaying(null); // Reset state immediately to avoid multiple plays
+          
           audioManager.playTrack(
             trackToPlay,
             () => {
               // Success callback
+              console.log('Playback successfully started for track:', trackId);
               setIsPlaying(trackId);
             },
             (err) => {
               // Error callback
+              console.error("Playback error:", err.message);
               setIsPlaying(null);
-              showToast('Unable to play this track. It may be in an unsupported format.', 'error');
+              showToast('Unable to play this track: ' + err.message, 'error');
             }
           );
         }
@@ -170,6 +244,76 @@ export default function Home() {
       if (trackToPlay) {
         togglePlay(selectedTrack, event);
       }
+    }
+  };
+  
+  // Function to play the next track in the current filtered list
+  const playNextTrack = () => {
+    if (!selectedTrack) return;
+    
+    const currentIndex = filteredTracks.findIndex(track => track.id === selectedTrack);
+    if (currentIndex === -1 || currentIndex === filteredTracks.length - 1) {
+      showToast('No next track available', 'info');
+      return;
+    }
+    
+    const nextTrack = filteredTracks[currentIndex + 1];
+    
+    // If we were playing, stop the current track
+    if (isPlaying !== null) {
+      audioManager.stopPlayback();
+    }
+    
+    // Select the next track
+    setSelectedTrack(nextTrack.id);
+    
+    // If we were playing, play the next track
+    if (isPlaying !== null) {
+      audioManager.playTrack(
+        nextTrack,
+        () => {
+          setIsPlaying(nextTrack.id);
+        },
+        (err) => {
+          setIsPlaying(null);
+          showToast(`Unable to play ${nextTrack.title}: ${err.message}`, 'error');
+        }
+      );
+    }
+  };
+
+  // Function to play the previous track in the current filtered list
+  const playPreviousTrack = () => {
+    if (!selectedTrack) return;
+    
+    const currentIndex = filteredTracks.findIndex(track => track.id === selectedTrack);
+    if (currentIndex <= 0) {
+      showToast('No previous track available', 'info');
+      return;
+    }
+    
+    const prevTrack = filteredTracks[currentIndex - 1];
+    
+    // If we were playing, stop the current track
+    if (isPlaying !== null) {
+      audioManager.stopPlayback();
+    }
+    
+    // Select the previous track
+    setSelectedTrack(prevTrack.id);
+    
+    // If we were playing, play the previous track
+    if (isPlaying !== null) {
+      audioManager.playTrack(
+        prevTrack,
+        () => {
+          setIsPlaying(prevTrack.id);
+        },
+        (err) => {
+          setIsPlaying(null);
+          showToast(`Unable to play ${prevTrack.title}: ${err.message}`, 'error');
+        }
+      );
     }
   };
   
@@ -193,6 +337,10 @@ export default function Home() {
       return;
     }
     
+    // Check file size
+    const fileSizeMB = file.size / (1024 * 1024);
+    console.log(`File size: ${fileSizeMB.toFixed(2)} MB`);
+    
     // Store file and show upload panel
     setUploadFile(file);
     setUploadSongTitle(file.name.replace(/\.[^/.]+$/, "")); // Set default title to filename
@@ -204,72 +352,132 @@ export default function Home() {
     }
   };
   
-  // Function to perform the actual upload
-const performUpload = async () => {
-  if (!uploadFile) return;
-  
-  setIsUploading(true);
-  
-  try {
-    // Create a unique filename
-    const uniqueFilename = `${Date.now()}-${uploadFile.name}`;
-    
-    // Create form data to send to API
-    const formData = new FormData();
-    formData.append('file', uploadFile);
-    
-    // Upload to Vercel Blob Storage
-    const response = await fetch(`/api/upload?filename=${encodeURIComponent(uniqueFilename)}`, {
-      method: 'POST',
-      body: formData,
-    });
-    
-    if (!response.ok) {
-      throw new Error('Failed to upload file');
+  // Modified performUpload function with progress tracking
+  const performUpload = async () => {
+    if (!uploadFile) {
+      showToast('No file selected', 'error');
+      return;
     }
     
-    const blob = await response.json();
-    const audioUrl = blob.url; // This URL is permanent and shareable
+    // Validate required fields
+    if (!uploadUserName.trim() || !uploadSongTitle.trim()) {
+      showToast('Artist name and song title are required', 'error');
+      return;
+    }
     
-    // Get audio duration
-    const audio = new Audio();
-    audio.src = audioUrl;
+    if (!uploadCategory || uploadCategory === "All" || uploadCategory === "My Tracks") {
+      showToast('Please select a valid category', 'error');
+      return;
+    }
     
-    // Handle errors
-    const handleAudioError = () => {
-      showToast('This audio file format is not supported. Please try another format like MP3 or WAV.', 'error');
-      setIsUploading(false);
-      setIsUploadPanelVisible(false);
-    };
-
-    audio.addEventListener('error', handleAudioError);
+    setIsUploading(true);
+    setUploadProgress(0);
     
-    // Handle metadata loading
-    audio.addEventListener('loadedmetadata', () => {
-      if (isNaN(audio.duration)) {
-        showToast('Could not determine audio duration. The file might be corrupt.', 'error');
-        setIsUploading(false);
-        setIsUploadPanelVisible(false);
-        return;
+    try {
+      // Override the uploadLargeFile function for this particular call
+      const uploadWithProgress = async (file: File): Promise<string> => {
+        // Generate a unique ID for this file upload
+        const fileId = Date.now().toString() + '-' + Math.random().toString(36).substring(2);
+        
+        // Set chunk size to 5MB
+        const chunkSize = 5 * 1024 * 1024; // 5MB chunks
+        const totalChunks = Math.ceil(file.size / chunkSize);
+        
+        console.log(`Starting chunked upload: ${file.name} (${file.size} bytes, ${totalChunks} chunks)`);
+        
+        // Upload each chunk
+        for (let i = 0; i < totalChunks; i++) {
+          // Calculate start and end bytes for this chunk
+          const start = i * chunkSize;
+          const end = Math.min(file.size, start + chunkSize);
+          const chunk = file.slice(start, end);
+          
+          // Create form data for this chunk
+          const formData = new FormData();
+          formData.append('fileId', fileId);
+          formData.append('chunkIndex', i.toString());
+          formData.append('totalChunks', totalChunks.toString());
+          formData.append('fileName', file.name);
+          formData.append('chunk', chunk);
+          
+          // Upload this chunk
+          const response = await fetch('/api/chunk-upload', {
+            method: 'POST',
+            body: formData,
+          });
+          
+          if (!response.ok) {
+            const text = await response.text();
+            console.error(`Error uploading chunk ${i}:`, text);
+            throw new Error(`Failed to upload chunk ${i}: ${response.status}`);
+          }
+          
+          const result = await response.json();
+          
+          // Update progress
+          const progress = Math.round(((i + 1) / totalChunks) * 100);
+          setUploadProgress(progress);
+          
+          if (result.status === 'complete') {
+            console.log('Upload completed successfully!');
+            return result.fileUrl;
+          }
+        }
+        
+        throw new Error('Upload failed: Not all chunks were processed');
+      };
+      
+      // Use our progress-tracking upload function
+      const fileUrl = await uploadWithProgress(uploadFile);
+      console.log('File uploaded successfully to:', fileUrl);
+      
+      // Calculate the duration using a Promise-based approach
+      const getDuration = (url: string): Promise<number> => {
+        return new Promise((resolve, reject) => {
+          const audio = new Audio();
+          
+          audio.addEventListener('loadedmetadata', () => {
+            if (isNaN(audio.duration)) {
+              reject(new Error('Invalid audio duration'));
+            } else {
+              resolve(audio.duration);
+            }
+          });
+          
+          audio.addEventListener('error', (e) => {
+            console.error('Audio error:', e);
+            reject(new Error('Audio file format not supported'));
+          });
+          
+          // Add CORS-related attributes
+          audio.crossOrigin = "anonymous";
+          audio.src = url;
+        });
+      };
+      
+      // Get the duration with error handling
+      let duration;
+      try {
+        duration = await getDuration(fileUrl);
+      } catch (error) {
+        console.error('Failed to get audio duration:', error);
+        // But continue with a default duration instead of stopping the upload
+        duration = 0;
       }
       
-      const duration = audio.duration;
-      
-      // Format duration
-      const minutes = Math.floor(duration / 60);
-      const seconds = Math.floor(duration % 60);
+      // Format duration (even if it's 0)
+      const minutes = Math.floor((duration || 0) / 60);
+      const seconds = Math.floor((duration || 0) % 60);
       const formattedDuration = `${minutes}:${seconds.toString().padStart(2, '0')}`;
       
-      // Create track ID
+      // Create track ID and add new track
       const newTrackId = generateUniqueId();
-      
-      // Create new track
       const newTrack = {
         id: newTrackId,
-        title: uploadSongTitle || uploadFile.name.replace(/\.[^/.]+$/, ""),
-        artist: uploadUserName || 'User Upload',
-        duration: formattedDuration,
-        audioUrl: audioUrl, // Permanent URL from Vercel Blob
+        title: uploadSongTitle,
+        artist: uploadUserName,
+        duration: formattedDuration || '0:00', // Use default if we couldn't calculate
+        audioUrl: fileUrl,
         popular: false,
         category: uploadCategory,
         description: uploadDescription || '',
@@ -279,11 +487,11 @@ const performUpload = async () => {
         userTrack: true
       };
       
-      // Add track to list
       setTracks(prevTracks => [...prevTracks, newTrack]);
       
-      // Reset upload state
+      // Reset state
       setIsUploading(false);
+      setUploadProgress(0);
       setIsUploadPanelVisible(false);
       setUploadFile(null);
       setUploadUserName("");
@@ -292,24 +500,17 @@ const performUpload = async () => {
       setHasSongVersion(false);
       setUploadLyrics("");
       
-      // Show success message and select the new track
       showToast(`Track "${newTrack.title}" uploaded successfully!`, 'success');
       setSelectedTrack(newTrackId);
-      
-      // Switch to "My Tracks" category to show the new track
       setSelectedCategory("My Tracks");
-    });
-    
-    // Load the audio to trigger metadata loading
-    audio.load();
-    
-  } catch (error) {
-    console.error("Upload error:", error);
-    showToast('Failed to upload track. Please try again.', 'error');
-    setIsUploading(false);
-    setIsUploadPanelVisible(false);
-  }
-};
+      
+    } catch (error: any) {
+      console.error("Upload error:", error);
+      showToast(`Upload failed: ${error.message || 'Unknown error'}`, 'error');
+      setIsUploading(false);
+      setUploadProgress(0);
+    }
+  };
   
   // Delete a track - FIXED VERSION
   const deleteTrack = (trackId: number | string, event: React.MouseEvent) => {
@@ -477,6 +678,8 @@ const performUpload = async () => {
         onUploadClick={() => fileInputRef.current?.click()}
         onToggleSelectedTrack={toggleSelectedTrackPlay}
         onViewLyrics={handleViewLyrics}
+        onNextTrack={playNextTrack}  // New prop for next track functionality
+        onPreviousTrack={playPreviousTrack}  // New prop for previous track functionality
       />
       
       {/* Upload Modal Component */}
@@ -490,6 +693,7 @@ const performUpload = async () => {
         hasSongVersion={hasSongVersion}
         uploadLyrics={uploadLyrics}
         isUploading={isUploading}
+        uploadProgress={uploadProgress} // Added progress state
         categories={categories}
         onClose={() => {
           setIsUploadPanelVisible(false);
@@ -777,6 +981,30 @@ const performUpload = async () => {
             width: 24px !important;
             height: 24px !important;
           }
+        }
+
+        /* Progress bar styles */
+        .upload-progress-bar {
+          width: 100%;
+          height: 6px;
+          background-color: rgba(255, 255, 255, 0.1);
+          border-radius: 3px;
+          overflow: hidden;
+          margin-top: 10px;
+          margin-bottom: 5px;
+        }
+        
+        .upload-progress-fill {
+          height: 100%;
+          background: linear-gradient(90deg, #ff00cc, #3333ff);
+          transition: width 0.3s ease-out;
+        }
+        
+        .upload-progress-text {
+          font-size: 12px;
+          text-align: center;
+          color: rgba(255, 255, 255, 0.7);
+          margin-bottom: 10px;
         }
       `}</style>
     </main>

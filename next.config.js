@@ -1,12 +1,20 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  eslint: {
-    // Disable ESLint during builds
-    ignoreDuringBuilds: true,
+  experimental: {
+    serverComponentsExternalPackages: ['sharp'],
   },
-  typescript: {
-    // Disable TypeScript checking during builds
-    ignoreBuildErrors: true,
+  webpack: (config) => {
+    config.externals = [...(config.externals || []), 'sharp'];
+    return config;
+  },
+  // Maximum payload size the server can accept
+  api: {
+    bodyParser: {
+      sizeLimit: '50mb',
+    },
+    responseLimit: {
+      sizeLimit: '50mb',
+    },
   },
 };
 

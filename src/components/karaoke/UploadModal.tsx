@@ -1,9 +1,8 @@
-// src/components/karaoke/UploadModal.tsx
 "use client";
 
 import { useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faUpload, faInfo, faEdit } from '@fortawesome/free-solid-svg-icons';
+import { faUpload, faInfo, faEdit, faExclamationTriangle } from '@fortawesome/free-solid-svg-icons';
 
 interface UploadModalProps {
   visible: boolean;
@@ -15,6 +14,7 @@ interface UploadModalProps {
   hasSongVersion: boolean;
   uploadLyrics: string;
   isUploading: boolean;
+  uploadProgress: number; // Added progress prop
   categories: string[];
   onClose: () => void;
   onUserNameChange: (name: string) => void;
@@ -37,6 +37,7 @@ export default function UploadModal({
   hasSongVersion,
   uploadLyrics,
   isUploading,
+  uploadProgress, // Added progress prop
   categories,
   onClose,
   onUserNameChange,
@@ -49,6 +50,12 @@ export default function UploadModal({
   onComingSoon
 }: UploadModalProps) {
   const [showLyricsInfo, setShowLyricsInfo] = useState(false);
+  const [validationErrors, setValidationErrors] = useState<{
+    file?: string;
+    artist?: string;
+    title?: string;
+    category?: string;
+  }>({});
   
   if (!visible) return null;
 
@@ -56,6 +63,50 @@ export default function UploadModal({
   const getTimedLyricsExample = () => {
     return "[00:00.00] Song Title - Artist Name\n[00:10.50] First line of the lyrics\n[00:15.20] Second line of the lyrics";
   };
+
+  // Validate form before uploading
+  const handleUpload = () => {
+    const errors: {
+      file?: string;
+      artist?: string;
+      title?: string;
+      category?: string;
+    } = {};
+    
+    // Check required fields
+    if (!uploadFile) {
+      errors.file = "An audio file is required";
+    }
+    
+    if (!uploadUserName.trim()) {
+      errors.artist = "Artist name is required";
+    }
+    
+    if (!uploadSongTitle.trim()) {
+      errors.title = "Song title is required";
+    }
+    
+    if (!uploadCategory) {
+      errors.category = "Please select a category";
+    }
+    
+    // If there are errors, show them
+    if (Object.keys(errors).length > 0) {
+      setValidationErrors(errors);
+      return;
+    }
+    
+    // Clear any previous errors
+    setValidationErrors({});
+    
+    // Proceed with upload
+    onUpload();
+  };
+
+  // Helper for required field indicator
+  const RequiredIndicator = () => (
+    <span style={{ color: '#ff00cc', marginLeft: '3px' }}>*</span>
+  );
 
   return (
     <div style={{
@@ -114,17 +165,47 @@ export default function UploadModal({
           }}>
             Upload songs for karaoke - both vocals and instrumentals welcome!
           </p>
+          <p style={{ 
+            margin: '10px 0 0 0',
+            color: '#ff00cc',
+            fontSize: '12px'
+          }}>
+            * Required fields
+          </p>
         </div>
         
+        {/* File selection */}
         <div style={{
           marginBottom: '20px'
         }}>
           <p style={{ 
             margin: '0 0 5px 0',
-            color: 'rgba(255,255,255,0.7)'
+            color: 'rgba(255,255,255,0.7)',
+            display: 'flex',
+            alignItems: 'center'
           }}>
-            Selected file: <span style={{ color: 'white' }}>{uploadFile?.name}</span>
+            Selected file <RequiredIndicator />:
           </p>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            color: uploadFile ? 'white' : '#ff5555',
+            fontSize: '14px'
+          }}>
+            {uploadFile ? (
+              <span>{uploadFile.name}</span>
+            ) : (
+              <span style={{ color: '#ff5555' }}>
+                <FontAwesomeIcon icon={faExclamationTriangle} style={{ marginRight: '5px' }} />
+                No file selected
+              </span>
+            )}
+          </div>
+          {validationErrors.file && (
+            <p style={{ color: '#ff5555', fontSize: '12px', margin: '5px 0 0 0' }}>
+              {validationErrors.file}
+            </p>
+          )}
         </div>
 
         {/* User name input */}
@@ -133,9 +214,11 @@ export default function UploadModal({
         }}>
           <p style={{ 
             margin: '0 0 5px 0',
-            color: 'rgba(255,255,255,0.7)'
+            color: 'rgba(255,255,255,0.7)',
+            display: 'flex',
+            alignItems: 'center'
           }}>
-            Artist name:
+            Artist name <RequiredIndicator />:
           </p>
           <input
             type="text"
@@ -146,12 +229,20 @@ export default function UploadModal({
               width: '100%',
               padding: '10px 15px',
               background: 'rgba(255,255,255,0.1)',
-              border: '1px solid rgba(255,255,255,0.2)',
+              border: validationErrors.artist 
+                ? '1px solid #ff5555' 
+                : '1px solid rgba(255,255,255,0.2)',
               borderRadius: '8px',
               color: 'white',
               fontSize: '14px'
             }}
+            required
           />
+          {validationErrors.artist && (
+            <p style={{ color: '#ff5555', fontSize: '12px', margin: '5px 0 0 0' }}>
+              {validationErrors.artist}
+            </p>
+          )}
         </div>
 
         {/* Song title input */}
@@ -160,9 +251,11 @@ export default function UploadModal({
         }}>
           <p style={{ 
             margin: '0 0 5px 0',
-            color: 'rgba(255,255,255,0.7)'
+            color: 'rgba(255,255,255,0.7)',
+            display: 'flex',
+            alignItems: 'center'
           }}>
-            Song title:
+            Song title <RequiredIndicator />:
           </p>
           <input
             type="text"
@@ -173,12 +266,20 @@ export default function UploadModal({
               width: '100%',
               padding: '10px 15px',
               background: 'rgba(255,255,255,0.1)',
-              border: '1px solid rgba(255,255,255,0.2)',
+              border: validationErrors.title 
+                ? '1px solid #ff5555' 
+                : '1px solid rgba(255,255,255,0.2)',
               borderRadius: '8px',
               color: 'white',
               fontSize: '14px'
             }}
+            required
           />
+          {validationErrors.title && (
+            <p style={{ color: '#ff5555', fontSize: '12px', margin: '5px 0 0 0' }}>
+              {validationErrors.title}
+            </p>
+          )}
         </div>
 
         {/* Description input */}
@@ -189,7 +290,7 @@ export default function UploadModal({
             margin: '0 0 5px 0',
             color: 'rgba(255,255,255,0.7)'
           }}>
-            Description:
+            Description (optional):
           </p>
           <input
             type="text"
@@ -250,7 +351,7 @@ export default function UploadModal({
             justifyContent: 'space-between',
             alignItems: 'center'
           }}>
-            <span>Lyrics:</span>
+            <span>Lyrics (optional):</span>
             <button
               onClick={() => setShowLyricsInfo(!showLyricsInfo)}
               style={{
@@ -327,7 +428,9 @@ export default function UploadModal({
             justifyContent: 'space-between',
             alignItems: 'center'
           }}>
-            <span>Select category:</span>
+            <span style={{ display: 'flex', alignItems: 'center' }}>
+              Select category <RequiredIndicator />:
+            </span>
             <span style={{
               fontSize: '12px',
               color: 'rgba(255,255,255,0.5)'
@@ -365,7 +468,70 @@ export default function UploadModal({
                 </button>
               ))}
           </div>
+          {validationErrors.category && (
+            <p style={{ color: '#ff5555', fontSize: '12px', margin: '5px 0 0 0' }}>
+              {validationErrors.category}
+            </p>
+          )}
         </div>
+        
+        {/* Error message area */}
+        {Object.keys(validationErrors).length > 0 && (
+          <div style={{
+            padding: '10px 15px',
+            background: 'rgba(255,0,0,0.1)',
+            border: '1px solid rgba(255,0,0,0.3)',
+            borderRadius: '8px',
+            marginBottom: '20px'
+          }}>
+            <p style={{ 
+              margin: '0',
+              color: '#ff5555',
+              fontSize: '14px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
+            }}>
+              <FontAwesomeIcon icon={faExclamationTriangle} />
+              Please fill in all required fields
+            </p>
+          </div>
+        )}
+        
+        {/* Upload Progress Bar - NEW ADDITION */}
+        {isUploading && (
+          <div style={{
+            marginBottom: '20px',
+            padding: '15px',
+            background: 'rgba(0,0,0,0.2)',
+            borderRadius: '8px',
+          }}>
+            <div style={{
+              height: '8px',
+              width: '100%',
+              background: 'rgba(255,255,255,0.1)',
+              borderRadius: '4px',
+              overflow: 'hidden',
+              marginBottom: '8px'
+            }}>
+              <div style={{
+                height: '100%',
+                width: `${uploadProgress}%`,
+                background: 'linear-gradient(to right, #ff00cc, #3333ff)',
+                borderRadius: '4px',
+                transition: 'width 0.3s ease'
+              }}></div>
+            </div>
+            <p style={{
+              textAlign: 'center',
+              margin: '0',
+              fontSize: '14px',
+              color: 'white'
+            }}>
+              Uploading... {uploadProgress}%
+            </p>
+          </div>
+        )}
         
         <div style={{
           display: 'flex',
@@ -388,7 +554,7 @@ export default function UploadModal({
           </button>
           
           <button
-            onClick={onUpload}
+            onClick={handleUpload}
             style={{
               padding: '10px 25px',
               borderRadius: '10px',
