@@ -20,6 +20,9 @@ const nextConfig = {
   
   // Add server external packages
   serverExternalPackages: ['libmediaify'],
+  
+  // Explicitly set experimental to an empty object to avoid any potential issues
+  experimental: {}
 };
 
 module.exports = nextConfig;
