@@ -2,7 +2,7 @@
 
 import React from 'react';
 
-// Inline component definition instead of importing from auth-provider
+// Inline component definition without importing from auth-provider
 export default function SignUpPage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-black">
