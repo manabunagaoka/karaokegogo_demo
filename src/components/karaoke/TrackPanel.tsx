@@ -1,7 +1,7 @@
 "use client";
 
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faChevronDown, faExchangeAlt } from '@fortawesome/free-solid-svg-icons';
+import { faChevronDown } from '@fortawesome/free-solid-svg-icons';
 import SearchBar from './SearchBar';
 import CategoryTabs from './CategoryTabs';
 import TrackList from './TrackList';
@@ -25,8 +25,11 @@ interface TrackPanelProps {
   onUploadClick: () => void;
   onToggleSelectedTrack: (e: React.MouseEvent) => void;
   onViewLyrics?: (trackId: number | string) => void;
-  onNextTrack?: () => void;  // Added next track functionality
-  onPreviousTrack?: () => void;  // Added previous track functionality
+  onNextTrack?: () => void;
+  onPreviousTrack?: () => void;
+  onFastForward?: () => void;
+  onRewind?: () => void;
+  onRestart?: () => void;
 }
 
 export default function TrackPanel({
@@ -46,24 +49,12 @@ export default function TrackPanel({
   onUploadClick,
   onToggleSelectedTrack,
   onViewLyrics,
-  onNextTrack,  // Added next track functionality
-  onPreviousTrack  // Added previous track functionality
+  onNextTrack,
+  onPreviousTrack,
+  onFastForward,
+  onRewind,
+  onRestart
 }: TrackPanelProps) {
-  // Helper function to find paired tracks (vocal/instrumental versions of the same song)
-  const findPairedTrack = (trackId: string | number) => {
-    const track = tracks.find(t => t.id === trackId);
-    if (!track) return null;
-    
-    // Try to find a matching track (same title/artist but different version)
-    return tracks.find(t => 
-      t.id !== trackId && 
-      t.title.toLowerCase().replace(/\(karaoke\)|\(instrumental\)/gi, '').trim() === 
-      track.title.toLowerCase().replace(/\(karaoke\)|\(instrumental\)/gi, '').trim() &&
-      t.artist === track.artist &&
-      ((t.hasSongVersion && !track.hasSongVersion) || (!t.hasSongVersion && track.hasSongVersion))
-    );
-  };
-
   // Modify TrackList to include the paired tracks functionality
   const enhancedTrackList = (
     <div style={{
@@ -85,18 +76,22 @@ export default function TrackPanel({
           onViewLyrics={onViewLyrics}
         />
       ) : (
-        // Enhanced track list with pairing functionality
+        // Enhanced track list
         <div style={{ padding: "0 10px" }}>
-          {tracks.map((track) => {
-            const pairedTrack = findPairedTrack(track.id);
-            const hasPair = pairedTrack !== null;
+          {tracks.map((track) => {            
+            // Determine if this track is either selected or playing
+            const isSelected = selectedTrack === track.id;
+            const isCurrentlyPlaying = isPlaying === track.id;
             
-            // Handle switching between vocal and instrumental versions
-            const handleSwitchVersion = (event: React.MouseEvent) => {
-              event.stopPropagation();
-              if (pairedTrack) {
-                onSelectTrack(pairedTrack.id);
+            // Handle track play with selection
+            const handlePlayTrack = (e: React.MouseEvent) => {
+              e.stopPropagation();
+              // First select the track if it's not selected
+              if (!isSelected) {
+                onSelectTrack(track.id);
               }
+              // Then toggle play
+              onTogglePlay(track.id, e);
             };
             
             return (
@@ -104,8 +99,8 @@ export default function TrackPanel({
                 key={track.id}
                 onClick={() => onSelectTrack(track.id)}
                 style={{
-                  backgroundColor: selectedTrack === track.id ? "rgba(255, 102, 204, 0.15)" : "rgba(0, 0, 0, 0.2)",
-                  border: selectedTrack === track.id ? "1px solid rgba(255, 102, 204, 0.3)" : "1px solid rgba(255, 255, 255, 0.1)",
+                  backgroundColor: isSelected ? "rgba(255, 102, 204, 0.15)" : "rgba(0, 0, 0, 0.2)",
+                  border: isSelected ? "1px solid rgba(255, 102, 204, 0.3)" : "1px solid rgba(255, 255, 255, 0.1)",
                   borderRadius: "10px",
                   padding: "15px",
                   marginBottom: "10px",
@@ -114,7 +109,7 @@ export default function TrackPanel({
                   justifyContent: "space-between",
                   alignItems: "center",
                   transition: "background-color 0.2s ease",
-                  background: selectedTrack === track.id 
+                  background: isSelected 
                     ? "linear-gradient(135deg, rgba(255,102,204,0.15), rgba(0,0,0,0.3))" 
                     : "linear-gradient(135deg, rgba(36,14,50,0.5), rgba(0,0,0,0.5))"
                 }}
@@ -135,7 +130,7 @@ export default function TrackPanel({
                       color: track.popular ? "#ff66cc" : "white"
                     }}>
                       {track.title}
-                      {hasPair && (
+                      {(track.hasSongVersion || track.isKaraokeTrack) && (
                         <span style={{
                           fontSize: "12px",
                           backgroundColor: "rgba(51, 102, 255, 0.3)",
@@ -145,7 +140,7 @@ export default function TrackPanel({
                           marginLeft: "8px",
                           verticalAlign: "middle"
                         }}>
-                          {track.hasSongVersion || track.isKaraokeTrack ? "Karaoke" : "Vocal"}
+                          Karaoke
                         </span>
                       )}
                     </span>
@@ -191,6 +186,10 @@ export default function TrackPanel({
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
+                        // Select the track before viewing lyrics
+                        if (!isSelected) {
+                          onSelectTrack(track.id);
+                        }
                         onViewLyrics(track.id);
                       }}
                       style={{
@@ -210,33 +209,13 @@ export default function TrackPanel({
                     </button>
                   )}
                   
-                  {/* Switch version button (only if has pair) */}
-                  {hasPair && (
-                    <button
-                      onClick={handleSwitchVersion}
-                      style={{
-                        backgroundColor: "rgba(51, 102, 255, 0.2)",
-                        border: "1px solid rgba(51, 102, 255, 0.4)",
-                        borderRadius: "50%",
-                        width: "34px",
-                        height: "34px",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        cursor: "pointer",
-                        color: "white"
-                      }}
-                      title={`Switch to ${track.hasSongVersion || track.isKaraokeTrack ? "vocal" : "instrumental"} version`}
-                    >
-                      <FontAwesomeIcon icon={faExchangeAlt} style={{ fontSize: "14px" }} />
-                    </button>
-                  )}
-                  
-                  {/* Play/pause button */}
+                  {/* Play/pause button - Updated with disco pink gradient for BOTH selected and playing tracks */}
                   <button
-                    onClick={(e) => onTogglePlay(track.id, e)}
+                    onClick={handlePlayTrack}
                     style={{
-                      backgroundColor: isPlaying === track.id ? "rgba(255, 102, 204, 0.8)" : "rgba(255, 255, 255, 0.1)",
+                      background: isCurrentlyPlaying || isSelected ? 
+                        "linear-gradient(135deg, #ff00cc, #3333ff)" : 
+                        "rgba(255, 255, 255, 0.1)",
                       border: "1px solid rgba(255, 255, 255, 0.2)",
                       borderRadius: "50%",
                       width: "34px",
@@ -245,10 +224,13 @@ export default function TrackPanel({
                       alignItems: "center",
                       justifyContent: "center",
                       cursor: "pointer",
-                      color: "white"
+                      color: "white",
+                      boxShadow: isCurrentlyPlaying || isSelected ? 
+                        "0 0 10px rgba(255, 0, 204, 0.5)" : 
+                        "none"
                     }}
                   >
-                    <i className={isPlaying === track.id ? "fas fa-pause" : "fas fa-play"} style={{ fontSize: "14px" }}></i>
+                    <i className={isCurrentlyPlaying ? "fas fa-pause" : "fas fa-play"} style={{ fontSize: "14px" }}></i>
                   </button>
                   
                   {/* Delete button */}
@@ -384,13 +366,16 @@ export default function TrackPanel({
         />
       ) : enhancedTrackList}
 
-      {/* Track controls with next/previous functionality */}
+      {/* Track controls with updated styling */}
       <TrackControls 
         selectedTrack={selectedTrack}
         isPlaying={isPlaying === selectedTrack}
         onTogglePlay={onToggleSelectedTrack}
-        onNextTrack={onNextTrack}  // Added next track functionality
-        onPreviousTrack={onPreviousTrack}  // Added previous track functionality
+        onNextTrack={onNextTrack}
+        onPreviousTrack={onPreviousTrack}
+        onFastForward={onFastForward}
+        onRewind={onRewind}
+        onRestart={onRestart}
       />
     </div>
   );

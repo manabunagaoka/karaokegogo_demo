@@ -114,6 +114,9 @@ export default function Home() {
     onCancel: () => {} 
   });
 
+  // New state for seek functionality
+  const [seekAmount, setSeekAmount] = useState<number>(10); // Amount to seek in seconds
+
   // Add this helper function for generating unique IDs
   const generateUniqueId = (() => {
     let lastId = 0;
@@ -191,51 +194,50 @@ export default function Home() {
   };
   
   // Handle play/pause toggle for a track
-  // Replace your togglePlay function with this:
-const togglePlay = (trackId: number | string, event: React.MouseEvent) => {
-  event.stopPropagation();
-  
-  try {
-    if (isPlaying === trackId) {
-      // Currently playing this track, so stop it
-      audioManager.stopPlayback();
-      setIsPlaying(null);
-      console.log('Playback stopped for track:', trackId);
-    } else {
-      // If any track is currently playing, stop it first
-      if (isPlaying !== null) {
+  const togglePlay = (trackId: number | string, event: React.MouseEvent) => {
+    event.stopPropagation();
+    
+    try {
+      if (isPlaying === trackId) {
+        // Currently playing this track, so stop it
         audioManager.stopPlayback();
-      }
-      
-      // Play a different track
-      const trackToPlay = tracks.find(track => track.id === trackId);
-      if (trackToPlay) {
-        console.log('Starting playback for track:', trackId);
+        setIsPlaying(null);
+        console.log('Playback stopped for track:', trackId);
+      } else {
+        // If any track is currently playing, stop it first
+        if (isPlaying !== null) {
+          audioManager.stopPlayback();
+        }
         
-        // Important: Set state BEFORE playing to prevent multiple simultaneous attempts
-        setIsPlaying(trackId);
-        
-        audioManager.playTrack(
-          trackToPlay,
-          () => {
-            // Success callback - already set the state above
-            console.log('Playback successfully started for track:', trackId);
-          },
-          (err) => {
-            // Error callback
-            console.error("Playback error:", err.message);
-            setIsPlaying(null); // Reset state on error
-            showToast('Unable to play this track: ' + err.message, 'error');
-          }
-        );
+        // Play a different track
+        const trackToPlay = tracks.find(track => track.id === trackId);
+        if (trackToPlay) {
+          console.log('Starting playback for track:', trackId);
+          
+          // Important: Set state BEFORE playing to prevent multiple simultaneous attempts
+          setIsPlaying(trackId);
+          
+          audioManager.playTrack(
+            trackToPlay,
+            () => {
+              // Success callback - already set the state above
+              console.log('Playback successfully started for track:', trackId);
+            },
+            (err) => {
+              // Error callback
+              console.error("Playback error:", err.message);
+              setIsPlaying(null); // Reset state on error
+              showToast('Unable to play this track: ' + err.message, 'error');
+            }
+          );
+        }
       }
+    } catch (error) {
+      console.error("Error toggling playback:", error);
+      setIsPlaying(null);
+      showToast('Error playing track. Please try another.', 'error');
     }
-  } catch (error) {
-    console.error("Error toggling playback:", error);
-    setIsPlaying(null);
-    showToast('Error playing track. Please try another.', 'error');
-  }
-};
+  };
 
   // Toggle play for selected track
   const toggleSelectedTrackPlay = (event: React.MouseEvent) => {
@@ -315,6 +317,59 @@ const togglePlay = (trackId: number | string, event: React.MouseEvent) => {
           showToast(`Unable to play ${prevTrack.title}: ${err.message}`, 'error');
         }
       );
+    }
+  };
+
+  // NEW FUNCTION: Fast forward - Skip ahead by seekAmount seconds
+  const fastForward = () => {
+    if (isPlaying === null) return;
+    
+    try {
+      const currentTime = audioManager.getCurrentTime();
+      const duration = audioManager.getDuration();
+      
+      if (currentTime !== undefined && duration !== undefined) {
+        const newTime = Math.min(currentTime + seekAmount, duration);
+        audioManager.seek(newTime);
+        console.log(`Fast-forwarded to: ${newTime.toFixed(1)}s`);
+        showToast(`Fast-forwarded ${seekAmount}s`, 'info');
+      }
+    } catch (error) {
+      console.error('Error fast-forwarding:', error);
+      showToast('Error while fast-forwarding', 'error');
+    }
+  };
+
+  // NEW FUNCTION: Rewind - Go back by seekAmount seconds
+  const rewind = () => {
+    if (isPlaying === null) return;
+    
+    try {
+      const currentTime = audioManager.getCurrentTime();
+      
+      if (currentTime !== undefined) {
+        const newTime = Math.max(currentTime - seekAmount, 0);
+        audioManager.seek(newTime);
+        console.log(`Rewound to: ${newTime.toFixed(1)}s`);
+        showToast(`Rewound ${seekAmount}s`, 'info');
+      }
+    } catch (error) {
+      console.error('Error rewinding:', error);
+      showToast('Error while rewinding', 'error');
+    }
+  };
+
+  // NEW FUNCTION: Restart - Go back to the beginning
+  const restartTrack = () => {
+    if (isPlaying === null) return;
+    
+    try {
+      audioManager.seek(0);
+      console.log('Restarted track');
+      showToast('Restarted track', 'info');
+    } catch (error) {
+      console.error('Error restarting track:', error);
+      showToast('Error restarting track', 'error');
     }
   };
   
@@ -434,25 +489,40 @@ const togglePlay = (trackId: number | string, event: React.MouseEvent) => {
       
       // Calculate the duration using a Promise-based approach
       const getDuration = (url: string): Promise<number> => {
-        return new Promise((resolve, reject) => {
-          const audio = new Audio();
-          
-          audio.addEventListener('loadedmetadata', () => {
-            if (isNaN(audio.duration)) {
-              reject(new Error('Invalid audio duration'));
-            } else {
-              resolve(audio.duration);
-            }
-          });
-          
-          audio.addEventListener('error', (e) => {
-            console.error('Audio error:', e);
-            reject(new Error('Audio file format not supported'));
-          });
-          
-          // Add CORS-related attributes
-          audio.crossOrigin = "anonymous";
-          audio.src = url;
+        return new Promise((resolve) => {
+          // Always default to 0 duration if anything fails
+          try {
+            const audio = new Audio();
+            
+            // Set up event listeners
+            audio.addEventListener('loadedmetadata', () => {
+              if (!isNaN(audio.duration)) {
+                resolve(audio.duration);
+              } else {
+                resolve(0);
+              }
+            });
+            
+            audio.addEventListener('error', () => {
+              console.warn('Could not load audio metadata, using default duration');
+              resolve(0);
+            });
+            
+            // Add cache-busting parameter to URL
+            const cacheBuster = `?cb=${Date.now()}`;
+            const audioUrl = url.includes('?') ? `${url}&cb=${Date.now()}` : `${url}${cacheBuster}`;
+            
+            // Set attributes and load
+            audio.crossOrigin = "anonymous";
+            audio.preload = "metadata";
+            audio.src = audioUrl;
+            
+            // Set a timeout to resolve with 0 if loading takes too long
+            setTimeout(() => resolve(0), 3000);
+          } catch (error) {
+            console.error('Error in getDuration:', error);
+            resolve(0);
+          }
         });
       };
       
@@ -679,8 +749,12 @@ const togglePlay = (trackId: number | string, event: React.MouseEvent) => {
         onUploadClick={() => fileInputRef.current?.click()}
         onToggleSelectedTrack={toggleSelectedTrackPlay}
         onViewLyrics={handleViewLyrics}
-        onNextTrack={playNextTrack}  // New prop for next track functionality
-        onPreviousTrack={playPreviousTrack}  // New prop for previous track functionality
+        onNextTrack={playNextTrack}
+        onPreviousTrack={playPreviousTrack}
+        // Add the new handlers for seek functionality
+        onFastForward={fastForward}
+        onRewind={rewind}
+        onRestart={restartTrack}
       />
       
       {/* Upload Modal Component */}
@@ -715,38 +789,45 @@ const togglePlay = (trackId: number | string, event: React.MouseEvent) => {
         onComingSoon={showComingSoonMessage}
       />
       
-      {/* Lyrics Panel Component - FIXED VERSION */}
-      <LyricsPanel
-        visible={isLyricsPanelVisible}
-        track={currentLyricsTrack}
-        isPlaying={isPlaying === currentLyricsTrack?.id}
-        onClose={() => setIsLyricsPanelVisible(false)}
-        onTogglePlay={() => {
-          if (currentLyricsTrack) {
-            if (isPlaying === currentLyricsTrack.id) {
-              // If currently playing, stop it
-              audioManager.stopPlayback();
-              setIsPlaying(null);
-            } else {
-              // Start playing
-              audioManager.playTrack(
-                currentLyricsTrack,
-                () => {
-                  // Success callback
-                  setIsPlaying(currentLyricsTrack.id);
-                },
-                (err) => {
-                  // Error callback
-                  console.error("Error playing from lyrics panel:", err);
-                  setIsPlaying(null);
-                  showToast('Unable to play this track. It may be in an unsupported format.', 'error');
-                }
-              );
-            }
+     {/* Lyrics Panel Component */}
+<LyricsPanel
+  visible={isLyricsPanelVisible}
+  track={currentLyricsTrack}
+  isPlaying={isPlaying === currentLyricsTrack?.id}
+  onClose={() => setIsLyricsPanelVisible(false)}
+  onTogglePlay={() => {
+    if (currentLyricsTrack) {
+      if (isPlaying === currentLyricsTrack.id) {
+        // If currently playing, stop it
+        audioManager.stopPlayback();
+        setIsPlaying(null);
+      } else {
+        // Start playing
+        audioManager.playTrack(
+          currentLyricsTrack,
+          () => {
+            // Success callback
+            setIsPlaying(currentLyricsTrack.id);
+          },
+          (err) => {
+            // Error callback
+            console.error("Error playing from lyrics panel:", err);
+            setIsPlaying(null);
+            showToast('Unable to play this track. It may be in an unsupported format.', 'error');
           }
-        }}
-        currentTime={currentPlaybackTime}
-      />
+        );
+      }
+    }
+  }}
+  currentTime={currentPlaybackTime}
+  // Add track navigation props
+  onNextTrack={playNextTrack}
+  onPreviousTrack={playPreviousTrack}
+  // Add seek functionality props
+  onFastForward={fastForward}
+  onRewind={rewind}
+  onRestart={restartTrack}
+/>
       
       {/* Toast Notification Component */}
       <ToastNotification 

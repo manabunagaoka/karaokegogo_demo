@@ -1,136 +1,168 @@
-// src/components/karaoke/LyricsPanel.tsx
+"use client";
+
 import React, { useState, useEffect, useRef } from 'react';
+import { Track } from '@/lib/audio-manager';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faTimes, faPlay, faPause } from '@fortawesome/free-solid-svg-icons';
+import { 
+  faTimes, 
+  faPlay, 
+  faPause,
+  faStepBackward,
+  faStepForward,
+  faBackward,
+  faForward,
+  faRedo
+} from '@fortawesome/free-solid-svg-icons';
 
 interface LyricsPanelProps {
   visible: boolean;
-  track: any;
+  track: Track | null;
   isPlaying: boolean;
+  currentTime: number;
   onClose: () => void;
   onTogglePlay: () => void;
-  currentTime?: number; // Current playback time in seconds
-}
-
-// Interface for parsed lyrics
-interface LyricLine {
-  time: number; // Time in seconds
-  text: string; // The lyric text
+  // Track navigation props
+  onNextTrack?: () => void;
+  onPreviousTrack?: () => void;
+  // Seek functionality props
+  onFastForward?: () => void;
+  onRewind?: () => void;
+  onRestart?: () => void;
 }
 
 export default function LyricsPanel({
   visible,
   track,
   isPlaying,
+  currentTime,
   onClose,
   onTogglePlay,
-  currentTime = 0
+  onNextTrack,
+  onPreviousTrack,
+  onFastForward,
+  onRewind,
+  onRestart
 }: LyricsPanelProps) {
-  const [activeLineIndex, setActiveLineIndex] = useState<number>(-1);
-  const [parsedLyrics, setParsedLyrics] = useState<LyricLine[]>([]);
-  const activeLyricRef = useRef<HTMLDivElement>(null);
-  const lyricsContainerRef = useRef<HTMLDivElement>(null);
+  const [lyrics, setLyrics] = useState<string[]>([]);
+  const [currentLine, setCurrentLine] = useState<number>(0);
+  const [parsedLines, setParsedLines] = useState<{time: number, text: string}[]>([]);
   
-  // Parse lyrics when track changes
+  // Ref for lyrics container to auto-scroll
+  const lyricsContainerRef = useRef<HTMLDivElement>(null);
+  const currentLineRef = useRef<HTMLDivElement>(null);
+  
+  // Parse lyrics with timestamps [00:00.00] format when the track changes
   useEffect(() => {
-    if (track?.lyrics) {
-      // Check if lyrics have timestamps [00:00.00]
-      const hasTimestamps = /\[\d{2}:\d{2}\.\d{2}\]/.test(track.lyrics);
+    if (!track || !track.lyrics) {
+      setLyrics([]);
+      setParsedLines([]);
+      return;
+    }
+    
+    try {
+      const lyricsText = track.lyrics;
+      
+      // Check if the lyrics have timestamps in format [mm:ss.xx]
+      const hasTimestamps = /\[\d{2}:\d{2}\.\d{2}\]/.test(lyricsText);
       
       if (hasTimestamps) {
-        // Parse timestamped lyrics
-        const lines = track.lyrics.split('\n');
-        const parsed: LyricLine[] = [];
+        // Parse timestamps and lyrics
+        const parsedLyrics: {time: number, text: string}[] = [];
+        const lines = lyricsText.split('\n');
         
         lines.forEach(line => {
-          // Match timestamp pattern [mm:ss.ms]
-          const match = line.match(/\[(\d{2}):(\d{2})\.(\d{2})\](.*)/);
+          // Find all timestamp matches in the line
+          const matches = [...line.matchAll(/\[(\d{2}):(\d{2})\.(\d{2})\]/g)];
           
-          if (match) {
-            const minutes = parseInt(match[1], 10);
-            const seconds = parseInt(match[2], 10);
-            const milliseconds = parseInt(match[3], 10) * 10; // Convert to milliseconds
+          if (matches.length > 0) {
+            // Get the text part (after all timestamps)
+            const textStart = matches[matches.length - 1].index! + matches[matches.length - 1][0].length;
+            const text = line.substring(textStart).trim();
             
-            const timeInSeconds = minutes * 60 + seconds + milliseconds / 1000;
-            const text = match[4].trim();
-            
-            parsed.push({
-              time: timeInSeconds,
-              text: text
+            // Process each timestamp in the line
+            matches.forEach(match => {
+              const minutes = parseInt(match[1]);
+              const seconds = parseInt(match[2]);
+              const hundredths = parseInt(match[3]);
+              const totalSeconds = (minutes * 60) + seconds + (hundredths / 100);
+              
+              parsedLyrics.push({
+                time: totalSeconds,
+                text: text
+              });
             });
           } else if (line.trim()) {
-            // Handle lines without timestamps (like headers)
-            parsed.push({
-              time: -1, // Special marker for non-timed lines
+            // For lines without timestamps but with content
+            parsedLyrics.push({
+              time: -1, // No timestamp
               text: line.trim()
             });
           }
         });
         
         // Sort by time
-        const sortedLyrics = parsed.sort((a, b) => {
-          // Keep non-timed lines at the top
-          if (a.time === -1) return -1;
-          if (b.time === -1) return 1;
-          return a.time - b.time;
-        });
+        parsedLyrics.sort((a, b) => a.time - b.time);
+        setParsedLines(parsedLyrics);
         
-        setParsedLyrics(sortedLyrics);
+        // Also set plain text version for display
+        setLyrics(parsedLyrics.map(line => line.text));
       } else {
-        // Handle plain lyrics without timestamps
-        const lines = track.lyrics.split('\n');
-        const parsed: LyricLine[] = lines
-          .filter(line => line.trim())
-          .map(line => ({
-            time: -1,
-            text: line.trim()
-          }));
-        
-        setParsedLyrics(parsed);
+        // No timestamps, just split by line
+        const plainLines = lyricsText.split('\n').filter(line => line.trim().length > 0);
+        setLyrics(plainLines);
+        setParsedLines([]);
       }
-    } else {
-      setParsedLyrics([]);
+    } catch (error) {
+      console.error('Error parsing lyrics:', error);
+      setLyrics(track.lyrics.split('\n').filter(line => line.trim().length > 0));
+      setParsedLines([]);
     }
   }, [track]);
   
-  // Update active line based on current playback time
+  // Update current line based on playback time
   useEffect(() => {
-    if (!isPlaying || parsedLyrics.length === 0) {
-      return;
-    }
+    if (!isPlaying || parsedLines.length === 0) return;
     
-    // Find the appropriate line based on current time
-    let foundIndex = -1;
+    // Find the current line based on timestamps
+    let matchedIndex = 0;
     
-    for (let i = parsedLyrics.length - 1; i >= 0; i--) {
-      const line = parsedLyrics[i];
-      if (line.time !== -1 && line.time <= currentTime) {
-        foundIndex = i;
+    for (let i = 0; i < parsedLines.length; i++) {
+      if (parsedLines[i].time <= currentTime) {
+        matchedIndex = i;
+      } else {
         break;
       }
     }
     
-    setActiveLineIndex(foundIndex);
-    
-    // Scroll to active line
-    if (foundIndex !== -1 && activeLyricRef.current && lyricsContainerRef.current) {
-      activeLyricRef.current.scrollIntoView({
-        behavior: 'smooth',
-        block: 'center'
+    setCurrentLine(matchedIndex);
+  }, [currentTime, isPlaying, parsedLines]);
+  
+  // Auto-scroll to the current line
+  useEffect(() => {
+    if (isPlaying && currentLineRef.current && lyricsContainerRef.current) {
+      const container = lyricsContainerRef.current;
+      const element = currentLineRef.current;
+      
+      // Calculate positions
+      const containerHeight = container.clientHeight;
+      const elementTop = element.offsetTop;
+      const elementHeight = element.clientHeight;
+      
+      // Scroll position should put the current line in the middle
+      const scrollPosition = elementTop - (containerHeight / 2) + (elementHeight / 2);
+      
+      // Smooth scroll to position
+      container.scrollTo({
+        top: Math.max(0, scrollPosition),
+        behavior: 'smooth'
       });
     }
-  }, [currentTime, isPlaying, parsedLyrics]);
+  }, [currentLine, isPlaying]);
   
   if (!visible) return null;
   
-  // Handle play button click with proper error prevention
-  const handlePlayClick = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    
-    // Call the provided onTogglePlay function
-    onTogglePlay();
-  };
+  // If we have a track, it's selected
+  const hasTrack = track !== null;
   
   return (
     <div style={{
@@ -139,55 +171,51 @@ export default function LyricsPanel({
       left: 0,
       width: "100%",
       height: "100%",
-      backgroundColor: "rgba(0, 0, 0, 0.9)",
-      backdropFilter: "blur(10px)",
+      backgroundColor: "rgba(0, 0, 0, 0.95)",
       zIndex: 50,
       display: "flex",
       flexDirection: "column",
-      color: "white"
+      color: "white",
     }}>
-      {/* Header */}
+      {/* Header with track info and close button */}
       <div style={{
-        padding: "15px 20px",
-        borderBottom: "1px solid rgba(255, 255, 255, 0.1)",
+        padding: "20px",
         display: "flex",
         justifyContent: "space-between",
-        alignItems: "center"
+        alignItems: "center",
+        borderBottom: "1px solid rgba(255, 255, 255, 0.1)",
+        background: "linear-gradient(to right, rgba(36,14,50,0.8) 0%, rgba(18,18,18,0.8) 100%)"
       }}>
-        <div>
-          <h2 style={{ 
+        <div style={{
+          display: "flex",
+          flexDirection: "column"
+        }}>
+          <h2 style={{
             margin: 0,
             fontSize: "20px",
-            fontWeight: "600",
             background: "linear-gradient(to right, #ff9900, #ff00ff)",
             WebkitBackgroundClip: "text",
-            WebkitTextFillColor: "transparent",
-            backgroundClip: "text"
+            backgroundClip: "text",
+            color: "transparent"
           }}>
-            Lyrics
+            {track?.title || "No Track Selected"}
           </h2>
-          {track && (
-            <p style={{
-              margin: "5px 0 0 0",
-              fontSize: "14px",
-              color: "rgba(255, 255, 255, 0.7)"
-            }}>
-              {track.title} - {track.artist}
-            </p>
-          )}
+          <p style={{
+            margin: "5px 0 0 0",
+            fontSize: "16px",
+            color: "rgba(255, 255, 255, 0.7)"
+          }}>
+            {track?.artist || "Unknown Artist"}
+          </p>
         </div>
+        
         <button
           onClick={onClose}
           style={{
-            backgroundColor: "rgba(255, 255, 255, 0.1)",
+            backgroundColor: "transparent",
             border: "none",
-            borderRadius: "50%",
-            width: "32px",
-            height: "32px",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
             color: "white",
+            fontSize: "24px",
             cursor: "pointer"
           }}
         >
@@ -195,81 +223,219 @@ export default function LyricsPanel({
         </button>
       </div>
       
-      {/* Lyrics Content */}
+      {/* Lyrics content - Full height */}
       <div 
         ref={lyricsContainerRef}
         style={{
           flex: 1,
           overflowY: "auto",
           padding: "20px",
-          textAlign: "center",
-          background: "linear-gradient(to bottom, rgba(36,14,50,0.7) 0%, rgba(18,18,18,0.7) 100%)"
+          position: "relative",
+          paddingBottom: "100px" // Extra padding to make space for controls
         }}
       >
-        {parsedLyrics.length > 0 ? (
-          parsedLyrics.map((line, index) => (
-            <div
-              key={index}
-              ref={index === activeLineIndex ? activeLyricRef : null}
-              style={{
-                fontSize: index === activeLineIndex ? "22px" : "18px",
-                marginBottom: "20px",
-                transition: "all 0.3s ease",
-                color: index === activeLineIndex 
-                  ? "white" 
-                  : line.time === -1 
-                    ? "rgba(255, 255, 255, 0.5)"  // Header/non-timestamped lines
-                    : "rgba(255, 255, 255, 0.8)",
-                fontWeight: index === activeLineIndex ? "bold" : "normal",
-                opacity: line.time >= 0 && line.time > currentTime + 60 ? 0.3 : 1, // Dim far future lines
-                textShadow: index === activeLineIndex ? "0 0 10px rgba(255, 102, 204, 0.8)" : "none"
-              }}
-            >
-              {line.text}
-            </div>
-          ))
+        {lyrics.length > 0 ? (
+          <div style={{
+            textAlign: "center",
+            fontSize: "18px",
+            lineHeight: 1.8,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center"
+          }}>
+            {lyrics.map((line, index) => (
+              <div
+                key={index}
+                ref={index === currentLine ? currentLineRef : null}
+                style={{
+                  margin: "10px 0",
+                  color: index === currentLine && isPlaying ? "#ff66cc" : "rgba(255, 255, 255, 0.8)",
+                  fontWeight: index === currentLine && isPlaying ? "bold" : "normal",
+                  fontSize: index === currentLine && isPlaying ? "22px" : "18px",
+                  transition: "all 0.3s ease",
+                  padding: "5px 10px",
+                  borderRadius: "4px",
+                  backgroundColor: index === currentLine && isPlaying ? "rgba(255, 0, 204, 0.1)" : "transparent"
+                }}
+              >
+                {line}
+              </div>
+            ))}
+          </div>
         ) : (
           <div style={{
             display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
             justifyContent: "center",
+            alignItems: "center",
             height: "100%",
-            opacity: 0.7
+            color: "rgba(255, 255, 255, 0.5)",
+            textAlign: "center",
+            padding: "20px"
           }}>
-            <p>No lyrics available for this track.</p>
+            {track ? "No lyrics available for this track" : "Select a track to view lyrics"}
           </div>
         )}
       </div>
       
-      {/* Playback Controls */}
+      {/* Track controls at the bottom - UPDATED PLAY BUTTON STYLING */}
       <div style={{
-        padding: "20px",
-        borderTop: "1px solid rgba(255, 255, 255, 0.1)",
+        position: "fixed",
+        bottom: 0,
+        left: 0,
+        width: "100%",
+        padding: "15px 20px",
+        borderTop: "1px solid rgba(255,255,255,0.1)",
+        background: "linear-gradient(to right, rgba(36,14,50,0.8) 0%, rgba(18,18,18,0.8) 100%)",
         display: "flex",
         justifyContent: "center",
-        background: "rgba(0, 0, 0, 0.3)"
+        alignItems: "center",
+        gap: "15px"
       }}>
+        {/* Restart Button */}
+        {onRestart && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              if (onRestart) onRestart();
+            }}
+            disabled={!isPlaying}
+            style={{
+              backgroundColor: isPlaying ? "rgba(255, 255, 255, 0.1)" : "rgba(255, 255, 255, 0.05)",
+              border: "1px solid rgba(255, 255, 255, 0.2)",
+              borderRadius: "50%",
+              width: "36px",
+              height: "36px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: isPlaying ? "pointer" : "default",
+              color: isPlaying ? "white" : "rgba(255, 255, 255, 0.5)"
+            }}
+          >
+            <FontAwesomeIcon icon={faRedo} style={{ fontSize: "14px" }} />
+          </button>
+        )}
+
+        {/* Rewind Button */}
+        {onRewind && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              if (onRewind) onRewind();
+            }}
+            disabled={!isPlaying}
+            style={{
+              backgroundColor: isPlaying ? "rgba(255, 255, 255, 0.1)" : "rgba(255, 255, 255, 0.05)",
+              border: "1px solid rgba(255, 255, 255, 0.2)",
+              borderRadius: "50%",
+              width: "36px",
+              height: "36px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: isPlaying ? "pointer" : "default",
+              color: isPlaying ? "white" : "rgba(255, 255, 255, 0.5)"
+            }}
+          >
+            <FontAwesomeIcon icon={faBackward} style={{ fontSize: "14px" }} />
+          </button>
+        )}
+        
+        {/* Previous Track Button */}
+        {onPreviousTrack && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              if (onPreviousTrack) onPreviousTrack();
+            }}
+            style={{
+              backgroundColor: "rgba(255, 255, 255, 0.1)",
+              border: "1px solid rgba(255, 255, 255, 0.2)",
+              borderRadius: "50%",
+              width: "40px",
+              height: "40px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+              color: "white"
+            }}
+          >
+            <FontAwesomeIcon icon={faStepBackward} style={{ fontSize: "14px" }} />
+          </button>
+        )}
+        
+        {/* Play/Pause Button - UPDATED: Always show disco pink since track is selected */}
         <button
-          onClick={handlePlayClick}
+          onClick={(e) => {
+            e.stopPropagation();
+            onTogglePlay();
+          }}
           style={{
-            background: "linear-gradient(135deg, #ff00cc, #660066)",
-            border: "none",
-            borderRadius: "30px",
-            padding: "10px 25px",
-            color: "white",
-            cursor: "pointer",
+            background: "linear-gradient(135deg, #ff00cc, #3333ff)",
+            border: "1px solid rgba(255, 255, 255, 0.2)",
+            borderRadius: "50%",
+            width: "60px",
+            height: "60px",
             display: "flex",
             alignItems: "center",
-            gap: "10px",
-            fontSize: "16px",
-            boxShadow: "0 0 20px rgba(255, 0, 204, 0.3)"
+            justifyContent: "center",
+            cursor: "pointer",
+            color: "white",
+            boxShadow: "0 0 20px rgba(255, 0, 204, 0.5)"
           }}
-          type="button"
         >
-          <FontAwesomeIcon icon={isPlaying ? faPause : faPlay} />
-          {isPlaying ? "Pause" : "Play"}
+          <FontAwesomeIcon icon={isPlaying ? faPause : faPlay} style={{ fontSize: "20px" }} />
         </button>
+        
+        {/* Next Track Button */}
+        {onNextTrack && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              if (onNextTrack) onNextTrack();
+            }}
+            style={{
+              backgroundColor: "rgba(255, 255, 255, 0.1)",
+              border: "1px solid rgba(255, 255, 255, 0.2)",
+              borderRadius: "50%",
+              width: "40px",
+              height: "40px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+              color: "white"
+            }}
+          >
+            <FontAwesomeIcon icon={faStepForward} style={{ fontSize: "14px" }} />
+          </button>
+        )}
+
+        {/* Fast Forward Button */}
+        {onFastForward && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              if (onFastForward) onFastForward();
+            }}
+            disabled={!isPlaying}
+            style={{
+              backgroundColor: isPlaying ? "rgba(255, 255, 255, 0.1)" : "rgba(255, 255, 255, 0.05)",
+              border: "1px solid rgba(255, 255, 255, 0.2)",
+              borderRadius: "50%",
+              width: "36px",
+              height: "36px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: isPlaying ? "pointer" : "default",
+              color: isPlaying ? "white" : "rgba(255, 255, 255, 0.5)"
+            }}
+          >
+            <FontAwesomeIcon icon={faForward} style={{ fontSize: "14px" }} />
+          </button>
+        )}
       </div>
     </div>
   );
