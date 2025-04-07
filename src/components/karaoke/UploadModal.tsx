@@ -122,15 +122,18 @@ export default function UploadModal({
       alignItems: 'center'
     }}>
       <div style={{
-        width: '90%',
-        maxWidth: '500px',
-        background: 'linear-gradient(to bottom, rgba(36,14,50,1) 0%, rgba(18,18,18,1) 100%)',
-        borderRadius: '15px',
-        padding: '20px',
-        boxShadow: '0 10px 30px rgba(0, 0, 0, 0.5)',
-        maxHeight: '90vh',
-        overflowY: 'auto'
-      }}>
+  width: '90%',
+  maxWidth: '500px',
+  background: 'linear-gradient(to bottom, rgba(36,14,50,1) 0%, rgba(18,18,18,1) 100%)',
+  borderRadius: '15px',
+  padding: '20px',
+  boxShadow: '0 10px 30px rgba(0, 0, 0, 0.5)',
+  maxHeight: '80vh', // Reduced from 90vh
+  overflowY: 'auto',
+  // Add these two lines to fix scrollbar styling
+  scrollbarWidth: 'thin',
+  scrollbarColor: 'rgba(255,255,255,0.2) transparent'
+}}>
         <h3 style={{
           fontSize: '20px',
           margin: '0 0 20px 0',

@@ -17,6 +17,16 @@ export interface AudioManager {
   playTrack: (track: Track, onSuccess?: () => void, onError?: (error: Error) => void) => void;
   stopPlayback: () => void;
   getCurrentTime: () => number | undefined;
+  // New methods for seeking functionality
+  seek: (time: number) => void;
+  getDuration: () => number | undefined;
+}
+
+// Helper function to create cache-busting audio URLs
+function createCacheBustedUrl(url: string): string {
+  const timestamp = new Date().getTime();
+  const cacheBuster = url.includes('?') ? `&cb=${timestamp}` : `?cb=${timestamp}`;
+  return `${url}${cacheBuster}`;
 }
 
 export function createAudioManager(): AudioManager {
@@ -99,8 +109,8 @@ export function createAudioManager(): AudioManager {
         // Set preload to auto to ensure it loads
         audioElement.preload = "auto";
         
-        // Set source
-        audioElement.src = track.audioUrl;
+        // Create cache-busted URL to prevent caching issues
+        const audioUrl = createCacheBustedUrl(track.audioUrl);
         
         // Set up event listeners before setting source
         audioElement.addEventListener('canplaythrough', () => {
@@ -150,7 +160,8 @@ export function createAudioManager(): AudioManager {
           cleanupAudio(false);
         });
         
-        // Start loading
+        // Set source and load
+        audioElement.src = audioUrl;
         audioElement.load();
         
         return;
@@ -177,11 +188,8 @@ export function createAudioManager(): AudioManager {
       // Set preload to auto to ensure it loads
       audioElement.preload = "auto";
       
-      // Generate a unique URL with cache busting for new track loads
-      const timestamp = new Date().getTime();
-      const audioUrl = track.audioUrl.includes('?') 
-        ? `${track.audioUrl}&t=${timestamp}` 
-        : `${track.audioUrl}?t=${timestamp}`;
+      // Create cache-busted URL to prevent caching issues
+      const audioUrl = createCacheBustedUrl(track.audioUrl);
       
       console.log('Loading new track from:', audioUrl);
       
@@ -274,9 +282,36 @@ export function createAudioManager(): AudioManager {
     return undefined;
   };
   
+  // NEW METHOD: Seek to a specific time in the current track
+  const seek = (time: number) => {
+    if (audioElement) {
+      // Ensure time is within valid bounds
+      const safeTime = Math.max(0, Math.min(time, audioElement.duration || 0));
+      audioElement.currentTime = safeTime;
+      console.log(`Seeked to position: ${safeTime.toFixed(1)} seconds`);
+    } else if (isPaused && currentTrackId) {
+      // If we're paused, update the pausedTime for when playback resumes
+      pausedTime = time;
+      console.log(`Updated paused position to: ${time.toFixed(1)} seconds`);
+    } else {
+      console.warn('Cannot seek: No active track');
+    }
+  };
+  
+  // NEW METHOD: Get the total duration of the current track
+  const getDuration = () => {
+    if (audioElement) {
+      return audioElement.duration;
+    }
+    return undefined;
+  };
+  
   return {
     playTrack,
     stopPlayback,
-    getCurrentTime
+    getCurrentTime,
+    // New methods
+    seek,
+    getDuration
   };
 }
